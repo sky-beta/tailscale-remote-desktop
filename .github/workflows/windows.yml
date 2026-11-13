@@ -13,9 +13,15 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 360
     steps:
+      - name: Enable IP forwarding
+        shell: pwsh
+        run: |
+          Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name IPEnableRouter -Type DWord -Value 1
+          Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.ConnectionState -eq 'Connected' } | Set-NetIPInterface -Forwarding Enabled
       - uses: tailscale/github-action@v4
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          args: --advertise-exit-node
       - name: Configure RDP
         shell: pwsh
         env:
@@ -39,4 +45,5 @@ jobs:
           $n = 0
           if (-not [int]::TryParse($env:DURATION, [ref]$n) -or $n -lt 1 -or $n -gt 350) { throw "运行时长必须在 1 到 350 分钟之间" }
           Start-Sleep -Seconds ($n * 60)
+
 
