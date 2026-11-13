@@ -40,6 +40,12 @@ jobs:
           sudo systemctl restart ssh
           tailscale ip -4
           echo "SSH 用户名 runner"
+          printf 'Current user: '; id -un
+          printf 'HOME: %s\n' "$HOME"
+          getent passwd runner | cut -d: -f1,6,7
+          ls -ld "$HOME" "$HOME/.ssh" "$HOME/.ssh/authorized_keys"
+          ssh-keygen -lf "$HOME/.ssh/authorized_keys"
+          sudo sshd -T | grep -E '^(authorizedkeysfile|pubkeyauthentication|strictmodes) '
       - name: Keep session available
         shell: bash
         env:
@@ -48,6 +54,7 @@ jobs:
           set -euo pipefail
           [[ "$DURATION" =~ ^[0-9]+$ ]] && (( DURATION >= 1 && DURATION <= 350 )) || { echo "运行时长必须在 1 到 350 分钟之间"; exit 1; }
           sleep "$(( DURATION * 60 ))"
+
 
 
 
