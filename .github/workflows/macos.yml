@@ -31,17 +31,9 @@ jobs:
           test "${#DESKTOP_PASSWORD}" -le 8 || { echo "macOS VNC 密码最多 8 个字符"; exit 1; }
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -clientopts -setvnclegacy -vnclegacy yes -clientopts -setvncpw -vncpw "$DESKTOP_PASSWORD" -restart -agent
           tailscale ip -4
-      - name: Keep session available and restart
+      - name: Keep session available
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          GH_REF: ${{ github.ref_name }}
-        run: |
-          sleep 21480
-          gh workflow run macos.yml --repo "$GH_REPO" --ref "$GH_REF"
-
-
+        run: sleep 21300
       - name: Remove temporary Tailscale node
         if: always()
         run: sudo tailscale logout || true
