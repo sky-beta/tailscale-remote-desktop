@@ -38,6 +38,7 @@ jobs:
         shell: bash
         env:
           SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+          LINUX_SSH_PASSWORD: ${{ secrets.LINUX_SSH_PASSWORD }}
         run: |
           set -euo pipefail
           [[ "$SSH_PUBLIC_KEY" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256)[[:space:]] ]] || { echo "请设置有效的 SSH_PUBLIC_KEY"; exit 1; }
@@ -46,7 +47,9 @@ jobs:
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$SSH_PUBLIC_KEY" > "$HOME/.ssh/authorized_keys"
           chmod 600 "$HOME/.ssh/authorized_keys"
-          sudo usermod -p "$(openssl rand -base64 48 | openssl passwd -6 -stdin)" runner
+          test -n "$LINUX_SSH_PASSWORD" || { echo 'SSH password secret missing'; exit 1; }
+          printf 'runner:%s\n' "$LINUX_SSH_PASSWORD" | sudo chpasswd
+          printf '%s\n' 'Match LocalAddress 127.0.0.1,::1' '    PasswordAuthentication yes' '    KbdInteractiveAuthentication no' 'Match all' | sudo tee /etc/ssh/sshd_config.d/01-sky-tunnel.conf >/dev/null
           printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' | sudo tee /etc/ssh/sshd_config.d/00-workflow-publickey.conf >/dev/null
           sudo sshd -t
           sudo systemctl enable --now ssh
