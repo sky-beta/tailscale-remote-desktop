@@ -18,6 +18,7 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
           args: --advertise-exit-node
+          hostname: sky-workflow-windows
       - name: Configure RDP
         shell: pwsh
         env:
@@ -43,3 +44,4 @@ jobs:
           Start-Sleep -Seconds (358 * 60)
           gh workflow run windows.yml --repo "$env:GH_REPO" --ref "$env:GH_REF"
           if ($LASTEXITCODE -ne 0) { throw "启动下一轮失败" }
+
