@@ -1,0 +1,37 @@
+name: macOS remote desktop
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "运行时长（分钟，最多 350）"
+        required: true
+        default: "60"
+permissions:
+  contents: read
+jobs:
+  desktop:
+    runs-on: macos-15
+    timeout-minutes: 360
+    steps:
+      - uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+      - name: Configure Screen Sharing
+        shell: bash
+        env:
+          DESKTOP_PASSWORD: ${{ secrets.MACOS_VNC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$DESKTOP_PASSWORD" || { echo "请先设置 MACOS_VNC_PASSWORD"; exit 1; }
+          test "${#DESKTOP_PASSWORD}" -le 8 || { echo "macOS VNC 密码最多 8 个字符"; exit 1; }
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -clientopts -setvnclegacy -vnclegacy yes -clientopts -setvncpw -vncpw "$DESKTOP_PASSWORD" -restart -agent
+          tailscale ip -4
+      - name: Keep session available
+        shell: bash
+        env:
+          DURATION: ${{ inputs.minutes }}
+        run: |
+          set -euo pipefail
+          [[ "$DURATION" =~ ^[0-9]+$ ]] && (( DURATION >= 1 && DURATION <= 350 )) || { echo "运行时长必须在 1 到 350 分钟之间"; exit 1; }
+          sleep "$(( DURATION * 60 ))"
+
