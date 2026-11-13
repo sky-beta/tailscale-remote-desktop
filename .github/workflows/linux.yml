@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
+      - name: Record session start
+        run: date +%s > "$RUNNER_TEMP/sky-job-started-at"
       - uses: actions/checkout@v4
       - name: Download and verify Linux services
         shell: bash
@@ -59,16 +61,27 @@ jobs:
           sudo sshd -T | grep -E '^(authorizedkeysfile|pubkeyauthentication|strictmodes) '
       - name: Restore AList and start VLESS WebSocket
         shell: bash
-        continue-on-error: true
         env:
           ALIST_RESTORE_JSON: ${{ secrets.ALIST_RESTORE_JSON }}
           ALIST_BOOTSTRAP_PASSWORD: ${{ secrets.ALIST_BOOTSTRAP_PASSWORD }}
           VLESS_WORKFLOW_UUID: ${{ secrets.VLESS_WORKFLOW_UUID }}
           TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
         run: bash "$GITHUB_WORKSPACE/sky-workflow-services/start-services.sh"
-      - name: Keep session available
+      - name: Monitor services until renewal
         shell: bash
-        run: sleep 21300
+        env:
+          TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+        run: bash "$GITHUB_WORKSPACE/sky-workflow-services/monitor.sh"
+      - name: Start next Linux session
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref_name }}
+        run: |
+          if [ "${{ job.status }}" = failure ]; then sleep 45; fi
+          gh workflow run linux.yml --repo "$GH_REPO" --ref "$GH_REF"
       - name: Remove temporary Tailscale node
         if: always()
         run: sudo tailscale logout || true
