@@ -44,11 +44,12 @@ jobs:
         run: |
           set -euo pipefail
           sudo installer -pkg "$RUNNER_TEMP/osxrdp.pkg" -target /
-          sudo dscl . -passwd /Users/runner "$DESKTOP_PASSWORD"
+          sudo sysadminctl -addUser skyremote -fullName "Sky Remote" -password "$DESKTOP_PASSWORD" -admin
+          id skyremote >/dev/null
           open '/Applications/osxrdp/OSXRDP.app'
           for i in $(seq 1 30); do nc -G 2 -z 127.0.0.1 3389 && { echo 'macOS RDP port ready'; break; }; sleep 2; done
           nc -G 2 -z 127.0.0.1 3389 || { echo 'macOS RDP port unavailable'; exit 1; }
-          echo 'RDP username: runner; screen recording and accessibility permissions may need approval via VNC.'
+          echo 'RDP username: skyremote; screen recording and accessibility permissions may need approval via VNC.'
       - name: Keep session available
         shell: bash
         run: sleep 21300
