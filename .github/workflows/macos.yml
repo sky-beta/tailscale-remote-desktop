@@ -4,6 +4,9 @@ on:
 permissions:
   contents: read
   actions: write
+concurrency:
+  group: sky-workflow-macos
+  cancel-in-progress: false
 jobs:
   desktop:
     runs-on: macos-15-intel
@@ -38,3 +41,7 @@ jobs:
           sleep 21480
           gh workflow run macos.yml --repo "$GH_REPO" --ref "$GH_REF"
 
+
+      - name: Remove temporary Tailscale node
+        if: always()
+        run: sudo tailscale logout || true
