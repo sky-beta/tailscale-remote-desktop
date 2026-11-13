@@ -1,0 +1,43 @@
+name: macOS WebDAV mount test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-15-intel
+    timeout-minutes: 6
+    steps:
+      - name: Test native WebDAV mount
+        env:
+          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
+          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/Desktop/AList共享"
+          python3 - <<'PY'
+          import os,pty,select,time,signal,sys
+          url='https://striking-rebecka-wxj3837-0de393a2.koyeb.app/alist/dav/'
+          dest=os.path.expanduser('~/Desktop/AList共享')
+          pid,fd=pty.fork()
+          if pid==0:
+              os.execvp('mount_webdav',['mount_webdav','-i','-v','AList',url,dest])
+          data=b'';username=False;password=False;end=time.time()+80
+          while time.time()<end:
+              ready,_,_=select.select([fd],[],[],1)
+              if ready:
+                  try:data+=os.read(fd,4096)
+                  except OSError:pass
+                  lower=data.lower()
+                  if not username and (b'username' in lower or b'user name' in lower):os.write(fd,(os.environ['SHARED_ALIST_USERNAME']+'\n').encode());username=True;data=b''
+                  if not password and b'password' in lower:os.write(fd,(os.environ['SHARED_ALIST_PASSWORD']+'\n').encode());password=True;data=b''
+              done,status=os.waitpid(pid,os.WNOHANG)
+              if done:
+                  print('mount exit:',os.waitstatus_to_exitcode(status),'username prompted:',username,'password prompted:',password)
+                  sys.exit(os.waitstatus_to_exitcode(status))
+          os.kill(pid,signal.SIGTERM);print('mount timed out');sys.exit(1)
+          PY
+          mount | grep 'AList共享' >/dev/null
+          ls "$HOME/Desktop/AList共享" | wc -l
+          echo MACOS_WEBDAV_MOUNTED
