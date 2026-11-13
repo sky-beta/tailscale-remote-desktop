@@ -1,0 +1,42 @@
+name: Windows remote desktop
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "运行时长（分钟，最多 350）"
+        required: true
+        default: "60"
+permissions:
+  contents: read
+jobs:
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    steps:
+      - uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+      - name: Configure RDP
+        shell: pwsh
+        env:
+          DESKTOP_PASSWORD: ${{ secrets.WINDOWS_DESKTOP_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:DESKTOP_PASSWORD)) { throw "请先设置 WINDOWS_DESKTOP_PASSWORD" }
+          $secure = ConvertTo-SecureString $env:DESKTOP_PASSWORD -AsPlainText -Force
+          Set-LocalUser -Name 'runneradmin' -Password $secure
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 1
+          Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
+          $ts = Get-NetAdapter | Where-Object { $_.InterfaceDescription -like '*Tailscale*' } | Select-Object -First 1
+          if (!$ts) { throw "找不到 Tailscale 网卡" }
+          New-NetFirewallRule -DisplayName 'Tailscale RDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3389 -InterfaceAlias $ts.Name | Out-Null
+          tailscale ip -4
+      - name: Keep session available
+        shell: pwsh
+        env:
+          DURATION: ${{ inputs.minutes }}
+        run: |
+          $n = 0
+          if (-not [int]::TryParse($env:DURATION, [ref]$n) -or $n -lt 1 -or $n -gt 350) { throw "运行时长必须在 1 到 350 分钟之间" }
+          Start-Sleep -Seconds ($n * 60)
+
