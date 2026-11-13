@@ -12,17 +12,6 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 360
     steps:
-      - name: Configure Simplified Chinese display language
-        shell: powershell
-        timeout-minutes: 6
-        continue-on-error: true
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop
-          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList zh-CN) -Force
-          Set-WinUILanguageOverride -Language zh-CN
-          Set-Culture zh-CN
-          dism.exe /online /get-intl
       - name: Enable IP forwarding
         shell: pwsh
         run: |
@@ -56,6 +45,17 @@ jobs:
             Get-Process -Name WindowsTerminal,tailscale-ipn -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [void][WindowTools]::ShowWindowAsync($_.MainWindowHandle, 6) }
             Start-Sleep -Seconds 2
           }
+      - name: Configure Simplified Chinese display language
+        shell: powershell
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop
+          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList zh-CN) -Force
+          Set-WinUILanguageOverride -Language zh-CN
+          Set-Culture zh-CN
+          dism.exe /online /get-intl
       - name: Keep session available
         shell: pwsh
         run: Start-Sleep -Seconds 21300
