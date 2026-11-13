@@ -6,7 +6,7 @@ permissions:
   actions: write
 jobs:
   desktop:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 360
     steps:
       - name: Enable IP forwarding
