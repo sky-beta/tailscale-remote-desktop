@@ -46,17 +46,9 @@ jobs:
           ls -ld "$HOME" "$HOME/.ssh" "$HOME/.ssh/authorized_keys"
           ssh-keygen -lf "$HOME/.ssh/authorized_keys"
           sudo sshd -T | grep -E '^(authorizedkeysfile|pubkeyauthentication|strictmodes) '
-      - name: Keep session available and restart
+      - name: Keep session available
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          GH_REF: ${{ github.ref_name }}
-        run: |
-          sleep 21480
-          gh workflow run linux.yml --repo "$GH_REPO" --ref "$GH_REF"
-
-
+        run: sleep 21300
       - name: Remove temporary Tailscale node
         if: always()
         run: sudo tailscale logout || true
