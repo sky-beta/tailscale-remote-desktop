@@ -24,4 +24,8 @@ wait "$alist_pid" || true
 nohup ./alist server --data "$work/alist-data" >"$work/alist.log" 2>&1 </dev/null &
 python3 "$GITHUB_WORKSPACE/sky-workflow-services/restore.py"
 
-bash "$GITHUB_WORKSPACE/sky-workflow-services/start-network.sh"
+if [ "${SKIP_NETWORK_TEST:-0}" = 1 ]; then
+  echo 'Isolated restore test finished.'
+else
+  bash "$GITHUB_WORKSPACE/sky-workflow-services/start-network.sh"
+fi
