@@ -24,6 +24,7 @@ jobs:
           set -euo pipefail
           [[ "$SSH_PUBLIC_KEY" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256)[[:space:]] ]] || { echo "请设置有效的 SSH_PUBLIC_KEY"; exit 1; }
           [[ "$SSH_PUBLIC_KEY" != *$'\n'* && "$SSH_PUBLIC_KEY" != *$'\r'* ]] || exit 1
+          chmod go-w "$HOME"
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$SSH_PUBLIC_KEY" > "$HOME/.ssh/authorized_keys"
           chmod 600 "$HOME/.ssh/authorized_keys"
@@ -42,4 +43,5 @@ jobs:
           set -euo pipefail
           [[ "$DURATION" =~ ^[0-9]+$ ]] && (( DURATION >= 1 && DURATION <= 350 )) || { echo "运行时长必须在 1 到 350 分钟之间"; exit 1; }
           sleep "$(( DURATION * 60 ))"
+
 
