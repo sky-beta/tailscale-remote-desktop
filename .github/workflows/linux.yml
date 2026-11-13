@@ -17,6 +17,7 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
           args: --advertise-exit-node
+          hostname: sky-workflow-linux
       - name: Configure SSH public key
         shell: bash
         env:
@@ -51,3 +52,4 @@ jobs:
         run: |
           sleep 21480
           gh workflow run linux.yml --repo "$GH_REPO" --ref "$GH_REF"
+
