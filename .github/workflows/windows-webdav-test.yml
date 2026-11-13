@@ -1,0 +1,33 @@
+name: Windows WebDAV mount test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Test Windows WebDAV redirector and authenticated mount
+        shell: powershell
+        env:
+          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
+          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $feature = Get-WindowsFeature -Name WebDAV-Redirector
+          Write-Output "WebDAV feature state: $($feature.InstallState)"
+          if (-not $feature.Installed) {
+            $result = Install-WindowsFeature -Name WebDAV-Redirector
+            Write-Output "Install success: $($result.Success); restart needed: $($result.RestartNeeded)"
+          }
+          $service=Get-Service WebClient -ErrorAction SilentlyContinue
+          if (-not $service) { throw 'WebClient service is unavailable' }
+          Set-Service WebClient -StartupType Manual
+          Start-Service WebClient -ErrorAction SilentlyContinue
+          Write-Output "WebClient state: $((Get-Service WebClient).Status)"
+          $share='\\striking-rebecka-wxj3837-0de393a2.koyeb.app@SSL\DavWWWRoot\alist\dav'
+          & net.exe use Z: $share "/user:$env:SHARED_ALIST_USERNAME" "$env:SHARED_ALIST_PASSWORD" /persistent:no
+          if ($LASTEXITCODE -ne 0) { throw "WebDAV mapping failed: $LASTEXITCODE" }
+          if (-not (Test-Path 'Z:\')) { throw 'Drive not accessible' }
+          Write-Output 'WEBDAV_DRIVE_READY'
