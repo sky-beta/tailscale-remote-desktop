@@ -12,6 +12,17 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 360
     steps:
+      - name: Configure Simplified Chinese display language
+        shell: powershell
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop
+          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList zh-CN) -Force
+          Set-WinUILanguageOverride -Language zh-CN
+          Set-Culture zh-CN
+          dism.exe /online /get-intl
       - name: Enable IP forwarding
         shell: pwsh
         run: |
