@@ -1,0 +1,30 @@
+name: macOS RDP installation test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rdp-test:
+    runs-on: macos-15-intel
+    timeout-minutes: 12
+    steps:
+      - name: Install release and inspect service
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o "$RUNNER_TEMP/osxrdp.pkg" 'https://github.com/bho3538/osxrdp/releases/download/2.3/osxrdp_installer_v2.3.pkg'
+          echo '0c8f659a73bab86c872900867c8e92776b926dc1e48e27e5ca3a05b6d5cf2551  '"$RUNNER_TEMP/osxrdp.pkg" | shasum -a 256 -c -
+          pkgutil --check-signature "$RUNNER_TEMP/osxrdp.pkg" || true
+          sudo installer -pkg "$RUNNER_TEMP/osxrdp.pkg" -target /
+          find /Applications/osxrdp -maxdepth 3 -name '*.app' -print || true
+          APP=$(find /Applications/osxrdp -maxdepth 2 -iname 'osxrdp.app' -print -quit)
+          test -n "$APP"
+          open "$APP"
+          sleep 15
+          echo '--- Processes ---'
+          pgrep -alf 'osxrdp|xrdp' || true
+          echo '--- RDP listener ---'
+          sudo lsof -nP -iTCP:3389 -sTCP:LISTEN || true
+          if nc -G 3 -z 127.0.0.1 3389; then echo RDP_PORT_READY; else echo RDP_PORT_NOT_READY; fi
+          echo '--- Console session ---'
+          stat -f '%Su' /dev/console
