@@ -4,6 +4,9 @@ on:
 permissions:
   contents: read
   actions: write
+concurrency:
+  group: sky-workflow-windows
+  cancel-in-progress: false
 jobs:
   desktop:
     runs-on: windows-latest
@@ -45,3 +48,8 @@ jobs:
           gh workflow run windows.yml --repo "$env:GH_REPO" --ref "$env:GH_REF"
           if ($LASTEXITCODE -ne 0) { throw "启动下一轮失败" }
 
+
+      - name: Remove temporary Tailscale node
+        if: always()
+        shell: pwsh
+        run: tailscale logout
