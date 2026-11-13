@@ -1,13 +1,9 @@
 name: macOS remote desktop
 on:
   workflow_dispatch:
-    inputs:
-      minutes:
-        description: "运行时长（分钟，最多 350）"
-        required: true
-        default: "60"
 permissions:
   contents: read
+  actions: write
 jobs:
   desktop:
     runs-on: macos-15
@@ -31,13 +27,12 @@ jobs:
           test "${#DESKTOP_PASSWORD}" -le 8 || { echo "macOS VNC 密码最多 8 个字符"; exit 1; }
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -clientopts -setvnclegacy -vnclegacy yes -clientopts -setvncpw -vncpw "$DESKTOP_PASSWORD" -restart -agent
           tailscale ip -4
-      - name: Keep session available
+      - name: Keep session available and restart
         shell: bash
         env:
-          DURATION: ${{ inputs.minutes }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref_name }}
         run: |
-          set -euo pipefail
-          [[ "$DURATION" =~ ^[0-9]+$ ]] && (( DURATION >= 1 && DURATION <= 350 )) || { echo "运行时长必须在 1 到 350 分钟之间"; exit 1; }
-          sleep "$(( DURATION * 60 ))"
-
-
+          sleep 21480
+          gh workflow run macos.yml --repo "$GH_REPO" --ref "$GH_REF"
