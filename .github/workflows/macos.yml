@@ -31,6 +31,20 @@ jobs:
           test "${#DESKTOP_PASSWORD}" -le 8 || { echo "macOS VNC 密码最多 8 个字符"; exit 1; }
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -clientopts -setvnclegacy -vnclegacy yes -clientopts -setvncpw -vncpw "$DESKTOP_PASSWORD" -restart -agent
           tailscale ip -4
+      - name: Install and start macOS RDP
+        shell: bash
+        env:
+          DESKTOP_PASSWORD: ${{ secrets.MACOS_VNC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/osxrdp.pkg" 'https://github.com/bho3538/osxrdp/releases/download/2.3/osxrdp_installer_v2.3.pkg'
+          echo '0c8f659a73bab86c872900867c8e92776b926dc1e48e27e5ca3a05b6d5cf2551  '"$RUNNER_TEMP/osxrdp.pkg" | shasum -a 256 -c -
+          sudo installer -pkg "$RUNNER_TEMP/osxrdp.pkg" -target /
+          sudo dscl . -passwd /Users/runner "$DESKTOP_PASSWORD"
+          open '/Applications/osxrdp/OSXRDP.app'
+          for i in $(seq 1 30); do nc -G 2 -z 127.0.0.1 3389 && { echo 'macOS RDP port ready'; break; }; sleep 2; done
+          nc -G 2 -z 127.0.0.1 3389 || { echo 'macOS RDP port unavailable'; exit 1; }
+          echo 'RDP username: runner; screen recording and accessibility permissions may need approval via VNC.'
       - name: Keep session available
         shell: bash
         run: sleep 21300
