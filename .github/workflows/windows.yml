@@ -12,6 +12,17 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 360
     steps:
+      - uses: actions/checkout@v4
+      - name: Download verified WebDAV mount tools
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi=Join-Path $env:RUNNER_TEMP 'winfsp.msi'
+          $zip=Join-Path $env:RUNNER_TEMP 'rclone-windows.zip'
+          curl.exe -fsSL --retry 3 -o $msi https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi
+          if((Get-FileHash $msi -Algorithm SHA256).Hash -ne '073a70e00f77423e34bed98b86e600def93393ba5822204fac57a29324db9f7a'){throw 'WinFsp checksum mismatch'}
+          curl.exe -fsSL --retry 3 -o $zip https://github.com/rclone/rclone/releases/download/v1.76.0/rclone-v1.76.0-windows-amd64.zip
+          if((Get-FileHash $zip -Algorithm SHA256).Hash -ne '8b4fd2737ade4e70c057ef4a49deb7cffe94b0fb9d7587c189d149823f21a1dc'){throw 'rclone checksum mismatch'}
       - name: Enable IP forwarding
         shell: pwsh
         run: |
@@ -45,6 +56,14 @@ jobs:
             Get-Process -Name WindowsTerminal,tailscale-ipn -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [void][WindowTools]::ShowWindowAsync($_.MainWindowHandle, 6) }
             Start-Sleep -Seconds 2
           }
+      - name: Mount shared AList drive
+        shell: powershell
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
+          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
+        run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\mount-share-windows.ps1"'
       - name: Configure Simplified Chinese display language
         shell: powershell
         timeout-minutes: 6
