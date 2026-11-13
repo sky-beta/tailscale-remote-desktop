@@ -39,6 +39,7 @@ jobs:
         env:
           SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
           LINUX_SSH_PASSWORD: ${{ secrets.LINUX_SSH_PASSWORD }}
+          LINUX_SSH_HOST_KEY: ${{ secrets.LINUX_SSH_HOST_KEY }}
         run: |
           set -euo pipefail
           [[ "$SSH_PUBLIC_KEY" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256)[[:space:]] ]] || { echo "请设置有效的 SSH_PUBLIC_KEY"; exit 1; }
@@ -49,7 +50,10 @@ jobs:
           chmod 600 "$HOME/.ssh/authorized_keys"
           test -n "$LINUX_SSH_PASSWORD" || { echo 'SSH password secret missing'; exit 1; }
           printf 'runner:%s\n' "$LINUX_SSH_PASSWORD" | sudo chpasswd
-          printf '%s\n' 'Match LocalAddress 127.0.0.1,::1' '    PasswordAuthentication yes' '    KbdInteractiveAuthentication no' 'Match all' | sudo tee /etc/ssh/sshd_config.d/01-sky-tunnel.conf >/dev/null
+          test -n "$LINUX_SSH_HOST_KEY" || { echo 'SSH host key secret missing'; exit 1; }
+          printf '%s\n' "$LINUX_SSH_HOST_KEY" | sudo tee /etc/ssh/sky_workflow_host_ed25519_key >/dev/null
+          sudo chmod 600 /etc/ssh/sky_workflow_host_ed25519_key
+          printf '%s\n' 'HostKey /etc/ssh/sky_workflow_host_ed25519_key' 'Match LocalAddress 127.0.0.1,::1' '    PasswordAuthentication yes' '    KbdInteractiveAuthentication no' 'Match all' | sudo tee /etc/ssh/sshd_config.d/01-sky-tunnel.conf >/dev/null
           printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' | sudo tee /etc/ssh/sshd_config.d/00-workflow-publickey.conf >/dev/null
           sudo sshd -t
           sudo systemctl enable --now ssh
