@@ -1,0 +1,31 @@
+name: Linux service watchdog
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+permissions:
+  actions: write
+  contents: read
+concurrency:
+  group: sky-linux-watchdog
+  cancel-in-progress: false
+jobs:
+  ensure-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Start Linux workflow if none is active
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          runs=$(gh run list --repo "$GH_REPO" --workflow linux.yml --limit 50 --json status)
+          active=$(printf '%s' "$runs" | jq '[.[] | select(.status == "in_progress" or .status == "queued" or .status == "pending" or .status == "waiting" or .status == "requested")] | length')
+          if [ "$active" -eq 0 ]; then
+            echo 'No active Linux session: starting one.'
+            gh workflow run linux.yml --repo "$GH_REPO" --ref "$GH_REF"
+          else
+            echo "Linux session already active or queued: $active"
+          fi
