@@ -51,7 +51,7 @@ jobs:
           test -n "$LINUX_SSH_PASSWORD" || { echo 'SSH password secret missing'; exit 1; }
           printf 'runner:%s\n' "$LINUX_SSH_PASSWORD" | sudo chpasswd
           test -n "$LINUX_SSH_HOST_KEY" || { echo 'SSH host key secret missing'; exit 1; }
-          printf '%s\n' "$LINUX_SSH_HOST_KEY" | sudo tee /etc/ssh/sky_workflow_host_ed25519_key >/dev/null
+          printf '%s\n' "$LINUX_SSH_HOST_KEY" | tr -d '\r' | sudo tee /etc/ssh/sky_workflow_host_ed25519_key >/dev/null
           sudo chmod 600 /etc/ssh/sky_workflow_host_ed25519_key
           printf '%s\n' 'HostKey /etc/ssh/sky_workflow_host_ed25519_key' 'Match LocalAddress 127.0.0.1,::1' '    PasswordAuthentication yes' '    KbdInteractiveAuthentication no' 'Match all' | sudo tee /etc/ssh/sshd_config.d/01-sky-tunnel.conf >/dev/null
           printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' | sudo tee /etc/ssh/sshd_config.d/00-workflow-publickey.conf >/dev/null
