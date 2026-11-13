@@ -12,6 +12,7 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 360
     steps:
+      - uses: actions/checkout@v4
       - name: Enable IP forwarding
         run: |
           sudo sysctl -w net.inet.ip.forwarding=1
@@ -50,6 +51,14 @@ jobs:
           for i in $(seq 1 30); do nc -G 2 -z 127.0.0.1 3389 && { echo 'macOS RDP port ready'; break; }; sleep 2; done
           nc -G 2 -z 127.0.0.1 3389 || { echo 'macOS RDP port unavailable'; exit 1; }
           echo 'RDP username: skyremote; screen recording and accessibility permissions may need approval via VNC.'
+      - name: Mount shared AList drive
+        shell: bash
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
+          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
+        run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/mount-share-macos.py"
       - name: Keep session available
         shell: bash
         run: sleep 21300
