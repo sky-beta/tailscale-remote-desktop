@@ -1,0 +1,40 @@
+name: Linux SSH
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "运行时长（分钟，最多 350）"
+        required: true
+        default: "60"
+permissions:
+  contents: read
+jobs:
+  ssh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+      - name: Configure SSH public key
+        shell: bash
+        env:
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "$SSH_PUBLIC_KEY" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256)[[:space:]] ]] || { echo "请设置有效的 SSH_PUBLIC_KEY"; exit 1; }
+          [[ "$SSH_PUBLIC_KEY" != *$'\n'* && "$SSH_PUBLIC_KEY" != *$'\r'* ]] || exit 1
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PUBLIC_KEY" > "$HOME/.ssh/authorized_keys"
+          chmod 600 "$HOME/.ssh/authorized_keys"
+          sudo systemctl enable --now ssh
+          tailscale ip -4
+          echo "SSH 用户名 runner"
+      - name: Keep session available
+        shell: bash
+        env:
+          DURATION: ${{ inputs.minutes }}
+        run: |
+          set -euo pipefail
+          [[ "$DURATION" =~ ^[0-9]+$ ]] && (( DURATION >= 1 && DURATION <= 350 )) || { echo "运行时长必须在 1 到 350 分钟之间"; exit 1; }
+          sleep "$(( DURATION * 60 ))"
