@@ -27,7 +27,11 @@ jobs:
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$SSH_PUBLIC_KEY" > "$HOME/.ssh/authorized_keys"
           chmod 600 "$HOME/.ssh/authorized_keys"
+          sudo usermod -p "$(openssl rand -base64 48 | openssl passwd -6 -stdin)" runner
+          printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' | sudo tee /etc/ssh/sshd_config.d/00-workflow-publickey.conf >/dev/null
+          sudo sshd -t
           sudo systemctl enable --now ssh
+          sudo systemctl restart ssh
           tailscale ip -4
           echo "SSH 用户名 runner"
       - name: Keep session available
@@ -38,3 +42,4 @@ jobs:
           set -euo pipefail
           [[ "$DURATION" =~ ^[0-9]+$ ]] && (( DURATION >= 1 && DURATION <= 350 )) || { echo "运行时长必须在 1 到 350 分钟之间"; exit 1; }
           sleep "$(( DURATION * 60 ))"
+
