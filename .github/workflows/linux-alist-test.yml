@@ -1,0 +1,26 @@
+name: Linux AList restore test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified AList
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 3 -o "$RUNNER_TEMP/alist.tar.gz" https://github.com/AlistGo/alist/releases/download/v3.66.0/alist-linux-amd64.tar.gz
+          echo '06a2ab394c1bce4d29b84021192aa75350f556bd1a1e98d321ad760170b5ed31  '"$RUNNER_TEMP/alist.tar.gz" | sha256sum -c -
+      - name: Test fresh restore
+        shell: bash
+        env:
+          ALIST_RESTORE_JSON: ${{ secrets.ALIST_RESTORE_JSON }}
+          ALIST_BOOTSTRAP_PASSWORD: ${{ secrets.ALIST_BOOTSTRAP_PASSWORD }}
+          VLESS_WORKFLOW_UUID: ${{ secrets.VLESS_WORKFLOW_UUID }}
+          TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+          SKIP_NETWORK_TEST: '1'
+        run: bash "$GITHUB_WORKSPACE/sky-workflow-services/start-services.sh"
