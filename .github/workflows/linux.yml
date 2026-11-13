@@ -13,9 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
+      - name: Enable IP forwarding
+        run: |
+          sudo sysctl -w net.ipv4.ip_forward=1
+          sudo sysctl -w net.ipv6.conf.all.forwarding=1
       - uses: tailscale/github-action@v4
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          args: --advertise-exit-node
       - name: Configure SSH public key
         shell: bash
         env:
@@ -43,5 +48,6 @@ jobs:
           set -euo pipefail
           [[ "$DURATION" =~ ^[0-9]+$ ]] && (( DURATION >= 1 && DURATION <= 350 )) || { echo "运行时长必须在 1 到 350 分钟之间"; exit 1; }
           sleep "$(( DURATION * 60 ))"
+
 
 
