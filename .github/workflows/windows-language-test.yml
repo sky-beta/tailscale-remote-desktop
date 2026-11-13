@@ -16,3 +16,10 @@ jobs:
           Get-Command Install-Language -ErrorAction SilentlyContinue | Format-List Name,Source
           dism.exe /online /get-intl
           Get-WindowsCapability -Online | Where-Object { $_.Name -match 'Language\.(Basic|Fonts\.Hans).*zh-CN' } | Format-List Name,State
+      - name: Test installing Chinese language
+        shell: powershell
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop
+          dism.exe /online /get-intl
