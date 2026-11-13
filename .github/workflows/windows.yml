@@ -37,6 +37,14 @@ jobs:
           if (!$ts) { throw "找不到 Tailscale 网卡" }
           New-NetFirewallRule -DisplayName 'Tailscale RDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3389 -InterfaceAlias $ts.Name | Out-Null
           tailscale ip -4
+      - name: Minimize initial utility windows
+        shell: pwsh
+        run: |
+          Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class WindowTools { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int n); }'
+          for ($i=0; $i -lt 3; $i++) {
+            Get-Process -Name WindowsTerminal,tailscale-ipn -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [void][WindowTools]::ShowWindowAsync($_.MainWindowHandle, 6) }
+            Start-Sleep -Seconds 2
+          }
       - name: Keep session available
         shell: pwsh
         run: Start-Sleep -Seconds 21300
