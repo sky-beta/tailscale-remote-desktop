@@ -37,18 +37,9 @@ jobs:
           if (!$ts) { throw "找不到 Tailscale 网卡" }
           New-NetFirewallRule -DisplayName 'Tailscale RDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3389 -InterfaceAlias $ts.Name | Out-Null
           tailscale ip -4
-      - name: Keep session available and restart
+      - name: Keep session available
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          GH_REF: ${{ github.ref_name }}
-        run: |
-          Start-Sleep -Seconds (358 * 60)
-          gh workflow run windows.yml --repo "$env:GH_REPO" --ref "$env:GH_REF"
-          if ($LASTEXITCODE -ne 0) { throw "启动下一轮失败" }
-
-
+        run: Start-Sleep -Seconds 21300
       - name: Remove temporary Tailscale node
         if: always()
         shell: pwsh
