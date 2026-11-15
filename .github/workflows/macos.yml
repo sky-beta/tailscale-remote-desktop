@@ -28,6 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sudo networksetup -setdnsservers Ethernet Empty
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJrhu47ZxhbHPLL2hqstOfndVvT+KKZ2oJexWmqBnQ1X administrator@hong' >> "$HOME/.ssh/authorized_keys"
           chmod 600 "$HOME/.ssh/authorized_keys"
