@@ -24,8 +24,9 @@ jobs:
           pgrep -fl RustDesk || true
           echo '--- macOS privacy grants for RustDesk ---'
           for db in "$HOME/Library/Application Support/com.apple.TCC/TCC.db" '/Library/Application Support/com.apple.TCC/TCC.db'; do
-            if test -r "$db"; then sqlite3 "$db" "SELECT service,client,auth_value FROM access WHERE client LIKE '%[Rr]ust[Dd]esk%' AND service IN ('kTCCServiceScreenCapture','kTCCServiceAccessibility','kTCCServiceListenEvent');" 2>/dev/null || echo 'TCC database unavailable'; else echo 'TCC database unavailable'; fi
+            if test -r "$db"; then sqlite3 "$db" "SELECT service,client,auth_value FROM access WHERE lower(client) LIKE '%rustdesk%' AND service IN ('kTCCServiceScreenCapture','kTCCServiceAccessibility','kTCCServiceListenEvent');" 2>/dev/null || echo 'TCC database unavailable'; else echo 'TCC database unavailable'; fi
           done
           echo '--- console session ---'
           stat -f '%Su' /dev/console
           sleep 30
+
