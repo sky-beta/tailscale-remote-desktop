@@ -25,4 +25,9 @@ jobs:
           stat -f '%Su' /dev/console
           launchctl print gui/$(id -u) | head -12 || true
           sudo lsof -nP -iTCP:5900 -sTCP:LISTEN || true
-          sleep 300
+          echo '--- tailscale status ---'
+          tailscale status
+          echo '--- tailscale connectivity ---'
+          tailscale netcheck || true
+          sleep 15
+
