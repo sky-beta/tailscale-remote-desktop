@@ -1,0 +1,27 @@
+name: macOS native sharing test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: macos-15-intel
+    timeout-minutes: 6
+    steps:
+      - uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          hostname: sky-macos-native-test
+          args: --accept-dns=false
+      - name: Configure native sharing
+        shell: bash
+        env:
+          DESKTOP_PASSWORD: ${{ secrets.MACOS_VNC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -allowAccessFor -specifiedUsers -users runner -privs -all -clientopts -setvnclegacy -vnclegacy yes -clientopts -setvncpw -vncpw "$DESKTOP_PASSWORD" -restart -agent
+          sudo launchctl enable system/com.apple.screensharing || true
+          sudo launchctl kickstart system/com.apple.screensharing || true
+          tailscale ip -4
+          sudo lsof -nP -iTCP:5900 -sTCP:LISTEN || true
+          sleep 180
