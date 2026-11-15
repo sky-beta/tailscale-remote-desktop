@@ -8,6 +8,8 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 8
     steps:
+      - name: Install mac-rdp-server
+        run: brew install DawidAdamski/mac-rdp-server/mac-rdp-server
       - uses: tailscale/github-action@v4
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
@@ -17,7 +19,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install DawidAdamski/mac-rdp-server/mac-rdp-server
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJrhu47ZxhbHPLL2hqstOfndVvT+KKZ2oJexWmqBnQ1X administrator@hong' >> "$HOME/.ssh/authorized_keys"
           chmod 600 "$HOME/.ssh/authorized_keys"
@@ -29,4 +30,5 @@ jobs:
           tailscale ip -4
           sleep 180
           tail -30 /tmp/mac-rdp.log
+
 
