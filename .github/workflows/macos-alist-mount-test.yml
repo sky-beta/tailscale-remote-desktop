@@ -1,0 +1,22 @@
+name: macOS AList mount test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mount:
+    runs-on: macos-15-intel
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Mount and verify shared drive
+        shell: bash
+        env:
+          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
+          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/sky-workflow-services/mount-share-macos.py"
+          echo '--- mount check ---'
+          mount | grep -F "$HOME/Desktop/AList共享"
+          python3 -c 'import os; print("VISIBLE_ENTRIES=" + str(len(os.listdir(os.path.expanduser("~/Desktop/AList共享")))))'
