@@ -13,6 +13,8 @@ jobs:
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
+      - name: Install mac-rdp-server
+        run: brew install DawidAdamski/mac-rdp-server/mac-rdp-server
       - name: Enable IP forwarding
         run: |
           sudo sysctl -w net.inet.ip.forwarding=1
@@ -22,15 +24,16 @@ jobs:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
           args: --advertise-exit-node --accept-dns=false
           hostname: sky-workflow-macos
-      - name: Configure Screen Sharing
+      - name: Configure private remote desktop
         shell: bash
-        env:
-          DESKTOP_PASSWORD: ${{ secrets.MACOS_VNC_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "$DESKTOP_PASSWORD" || { echo "请先设置 MACOS_VNC_PASSWORD"; exit 1; }
-          test "${#DESKTOP_PASSWORD}" -le 8 || { echo "macOS VNC 密码最多 8 个字符"; exit 1; }
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -clientopts -setvnclegacy -vnclegacy yes -clientopts -setvncpw -vncpw "$DESKTOP_PASSWORD" -restart -agent
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJrhu47ZxhbHPLL2hqstOfndVvT+KKZ2oJexWmqBnQ1X administrator@hong' >> "$HOME/.ssh/authorized_keys"
+          chmod 600 "$HOME/.ssh/authorized_keys"
+          sudo launchctl enable system/com.openssh.sshd
+          sudo launchctl kickstart system/com.openssh.sshd || true
+          mac-rdp-server --check-permissions || true
           tailscale ip -4
       - name: Mount shared AList drive
         shell: bash
@@ -42,7 +45,9 @@ jobs:
         run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/mount-share-macos.py"
       - name: Keep session available
         shell: bash
-        run: sleep 21300
+        run: |
+          mac-rdp-server --bind-addr 127.0.0.1 >/tmp/mac-rdp-server.log 2>&1 &
+          sleep 21300
       - name: Remove temporary Tailscale node
         if: always()
         run: sudo tailscale logout || true
