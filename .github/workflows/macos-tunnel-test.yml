@@ -1,0 +1,26 @@
+name: macOS authenticated tunnel test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-15-intel
+    timeout-minutes: 6
+    steps:
+      - name: Install tunnel client
+        run: brew install cloudflared
+      - name: Start private SSH tunnel
+        shell: bash
+        env:
+          TUNNEL_TOKEN: ${{ secrets.MACOS_REMOTE_TUNNEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJrhu47ZxhbHPLL2hqstOfndVvT+KKZ2oJexWmqBnQ1X administrator@hong' >> "$HOME/.ssh/authorized_keys"
+          chmod 600 "$HOME/.ssh/authorized_keys"
+          sudo launchctl enable system/com.openssh.sshd
+          sudo launchctl kickstart system/com.openssh.sshd || true
+          cloudflared tunnel --no-autoupdate run >/tmp/cloudflared-test.log 2>&1 &
+          sleep 150
+          tail -20 /tmp/cloudflared-test.log
