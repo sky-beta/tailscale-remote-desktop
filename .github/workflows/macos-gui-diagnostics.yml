@@ -8,20 +8,21 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 8
     steps:
-      - name: Inspect GUI session
+      - uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          hostname: sky-macos-test
+      - name: Start native screen sharing
         shell: bash
+        env:
+          DESKTOP_PASSWORD: ${{ secrets.MACOS_VNC_PASSWORD }}
         run: |
-          set +e
-          echo '--- identity ---'
-          id
-          echo '--- console owner ---'
-          stat -f '%Su %Sg' /dev/console
-          echo '--- GUI processes ---'
-          ps -axo user,pid,comm | grep -E 'WindowServer|loginwindow|Finder|Dock|screensharingd' | grep -v grep
-          echo '--- displays ---'
-          system_profiler SPDisplaysDataType 2>/dev/null | head -100
-          echo '--- active user session ---'
-          launchctl print gui/$(id -u) 2>&1 | head -35
-          echo '--- screenshot status ---'
-          screencapture -x /tmp/desktop-diagnostic.png 2>&1
-          if test -f /tmp/desktop-diagnostic.png; then sips -g pixelWidth -g pixelHeight /tmp/desktop-diagnostic.png; fi
+          set -euo pipefail
+          test -n "$DESKTOP_PASSWORD"
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -clientopts -setvnclegacy -vnclegacy yes -clientopts -setvncpw -vncpw "$DESKTOP_PASSWORD" -restart -agent
+          tailscale ip -4
+          echo '--- console, screen and service ---'
+          stat -f '%Su' /dev/console
+          launchctl print gui/$(id -u) | head -12 || true
+          sudo lsof -nP -iTCP:5900 -sTCP:LISTEN || true
+          sleep 300
