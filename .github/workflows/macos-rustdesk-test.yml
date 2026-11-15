@@ -18,7 +18,7 @@ jobs:
         shell: bash
         run: |
           set -u
-          open -a /Applications/RustDesk.app
+          /usr/bin/open -g -a /Applications/RustDesk.app >/dev/null 2>&1 &
           sleep 15
           echo '--- process ---'
           pgrep -fl RustDesk || true
@@ -28,5 +28,6 @@ jobs:
           done
           echo '--- console session ---'
           stat -f '%Su' /dev/console
-          sleep 30
+          sleep 5
+
 
