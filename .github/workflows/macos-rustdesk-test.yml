@@ -1,0 +1,31 @@
+name: Mac RustDesk permissions test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-15-intel
+    timeout-minutes: 12
+    steps:
+      - name: Install official RustDesk package
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install --cask rustdesk
+          /usr/bin/codesign -dv /Applications/RustDesk.app 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority)=' || true
+      - name: Check service and permissions
+        shell: bash
+        run: |
+          set -u
+          open -a /Applications/RustDesk.app
+          sleep 15
+          echo '--- process ---'
+          pgrep -fl RustDesk || true
+          echo '--- macOS privacy grants for RustDesk ---'
+          for db in "$HOME/Library/Application Support/com.apple.TCC/TCC.db" '/Library/Application Support/com.apple.TCC/TCC.db'; do
+            if test -r "$db"; then sqlite3 "$db" "SELECT service,client,auth_value FROM access WHERE client LIKE '%[Rr]ust[Dd]esk%' AND service IN ('kTCCServiceScreenCapture','kTCCServiceAccessibility','kTCCServiceListenEvent');" 2>/dev/null || echo 'TCC database unavailable'; else echo 'TCC database unavailable'; fi
+          done
+          echo '--- console session ---'
+          stat -f '%Su' /dev/console
+          sleep 30
