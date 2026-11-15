@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install mac-rdp-server
-        run: brew install DawidAdamski/mac-rdp-server/mac-rdp-server
+        run: brew install DawidAdamski/mac-rdp-server/mac-rdp-server cloudflared
       - name: Enable IP forwarding
         run: |
           sudo sysctl -w net.inet.ip.forwarding=1
@@ -46,7 +46,10 @@ jobs:
         run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/mount-share-macos.py"
       - name: Keep session available
         shell: bash
+        env:
+          TUNNEL_TOKEN: ${{ secrets.MACOS_REMOTE_TUNNEL_TOKEN }}
         run: |
+          cloudflared tunnel --no-autoupdate run >/tmp/cloudflared-mac.log 2>&1 &
           mac-rdp-server --bind-addr 127.0.0.1 >/tmp/mac-rdp-server.log 2>&1 &
           sleep 21300
       - name: Remove temporary Tailscale node
