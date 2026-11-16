@@ -105,4 +105,25 @@ if ($Mode -eq 'Restore') {
     }
 }
 
+if ($Mode -eq 'Restore') {
+    foreach ($policyPath in @('HKCU:\Software\Policies\Google\Chrome', 'HKCU:\Software\Policies\Microsoft\Edge')) {
+        New-Item -Path $policyPath -Force | Out-Null
+        New-ItemProperty -Path $policyPath -Name 'RestoreOnStartup' -PropertyType DWord -Value 1 -Force | Out-Null
+    }
+    $firefoxProfiles = Join-Path $profileRoot 'AppData\Roaming\Mozilla\Firefox\Profiles'
+    if (Test-Path -LiteralPath $firefoxProfiles) {
+        Get-ChildItem -LiteralPath $firefoxProfiles -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $userJs = Join-Path $_.FullName 'user.js'
+            $lines = @()
+            if (Test-Path -LiteralPath $userJs) {
+                $lines = @(Get-Content -LiteralPath $userJs -ErrorAction SilentlyContinue |
+                    Where-Object { $_ -notmatch 'browser\.(startup\.page|sessionstore\.resume_from_crash)' })
+            }
+            $lines += 'user_pref("browser.startup.page", 3);'
+            $lines += 'user_pref("browser.sessionstore.resume_from_crash", true);'
+            Set-Content -LiteralPath $userJs -Value $lines -Encoding utf8
+        }
+    }
+}
+
 Write-Host ($Mode + ' complete. Profile groups copied: ' + $copied)
