@@ -91,6 +91,41 @@ jobs:
             Write-Warning ('Bilibili latest link retrieval failed: ' + $_.Exception.Message)
           }
 
+          function Find-QQExecutable {
+            $roots = @(
+              (Join-Path $env:ProgramFiles 'Tencent'),
+              (Join-Path $pf86 'Tencent'),
+              (Join-Path $env:LOCALAPPDATA 'Programs\Tencent'),
+              (Join-Path $env:LOCALAPPDATA 'Tencent')
+            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+            foreach ($root in $roots) {
+              $candidate = Get-ChildItem -LiteralPath $root -Filter 'QQ.exe' -File -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match '\\Tencent\\QQNT\\QQ\.exe$' } |
+                Select-Object -First 1 -ExpandProperty FullName
+              if ($candidate) { return $candidate }
+            }
+            return $null
+          }
+
+          $qqExe = Find-QQExecutable
+          if (!$qqExe) {
+            try {
+              $winget = Get-Command winget.exe -ErrorAction Stop
+              & $winget.Source install --id Tencent.QQ.NT --exact --source winget --silent --disable-interactivity --accept-source-agreements --accept-package-agreements
+              if ($LASTEXITCODE -ne 0) { throw "WinGet exit code $LASTEXITCODE" }
+              for ($attempt = 0; $attempt -lt 12 -and !$qqExe; $attempt++) {
+                Start-Sleep -Seconds 5
+                $qqExe = Find-QQExecutable
+              }
+              if (!$qqExe) { throw 'QQ NT executable was not found after fallback installation' }
+              $failed = @($failed | Where-Object { $_ -ne 'QQ' })
+              Write-Host "QQ NT fallback installation verified: $qqExe"
+            } catch {
+              if ($failed -notcontains 'QQ') { $failed += 'QQ' }
+              Write-Warning ('QQ fallback installation failed: ' + $_.Exception.Message)
+            }
+          }
+
           $desktop = [Environment]::GetFolderPath('Desktop')
           $shell = New-Object -ComObject WScript.Shell
           $shortcutRoots = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs") | Where-Object { Test-Path -LiteralPath $_ }
@@ -101,7 +136,7 @@ jobs:
               Remove-Item -Force -ErrorAction SilentlyContinue
           }
           $apps = @(
-            @{ Name = 'QQ'; StartNames = @('QQ'); Candidates = @((Join-Path $env:ProgramFiles 'Tencent\QQNT\QQ.exe'), (Join-Path $pf86 'Tencent\QQNT\QQ.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\QQNT\QQ.exe')) },
+            @{ Name = 'QQ'; StartNames = @('QQ'); Candidates = @($qqExe, (Join-Path $env:ProgramFiles 'Tencent\QQNT\QQ.exe'), (Join-Path $pf86 'Tencent\QQNT\QQ.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\QQNT\QQ.exe')) },
             @{ Name = '微信'; StartNames = @('微信', 'WeChat'); Candidates = @((Join-Path $env:ProgramFiles 'Tencent\WeChat\WeChat.exe'), (Join-Path $pf86 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\WeChat\WeChat.exe')) },
             @{ Name = '哔哩哔哩'; StartNames = @('哔哩哔哩', 'bilibili', 'Bilibili'); Candidates = @((Join-Path $env:ProgramFiles '哔哩哔哩\哔哩哔哩.exe'), (Join-Path $pf86 '哔哩哔哩\哔哩哔哩.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\哔哩哔哩\哔哩哔哩.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\bilibili\bilibili.exe')) }
           )
@@ -195,7 +230,20 @@ jobs:
           } else {
             Write-Host 'Windows Server runner detected. Applying Chinese locale preferences without downloading a client-only language pack.'
           }
-          try { Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList zh-CN) -Force -ErrorAction Stop } catch { Write-Warning ('User language preference was not applied: ' + $_.Exception.Message) }
+          try {
+            $basicTyping = Get-WindowsCapability -Online -Name 'Language.Basic~~~zh-CN~0.0.1.0' -ErrorAction Stop
+            if ($basicTyping.State -ne 'Installed') {
+              Add-WindowsCapability -Online -Name 'Language.Basic~~~zh-CN~0.0.1.0' -ErrorAction Stop | Out-Null
+            }
+          } catch { Write-Warning ('Chinese basic typing feature install failed: ' + $_.Exception.Message) }
+          try {
+            $languages = New-WinUserLanguageList -Language 'zh-CN'
+            $languages[0].InputMethodTips.Clear()
+            $languages[0].InputMethodTips.Add('0804:00000804') | Out-Null
+            $languages.Add('en-US') | Out-Null
+            Set-WinUserLanguageList -LanguageList $languages -Force -ErrorAction Stop
+            Set-WinDefaultInputMethodOverride -InputTip '0804:00000804' -ErrorAction Stop
+          } catch { Write-Warning ('Chinese Pinyin input method was not applied: ' + $_.Exception.Message) }
           try { Set-WinUILanguageOverride -Language zh-CN -ErrorAction Stop } catch { Write-Warning ('UI language override unavailable until the language pack is installed.') }
           try { Set-WinSystemLocale -SystemLocale zh-CN -ErrorAction Stop } catch { Write-Warning ('System locale was not changed: ' + $_.Exception.Message) }
           try { Set-Culture zh-CN -ErrorAction Stop } catch { Write-Warning ('Culture was not changed: ' + $_.Exception.Message) }
