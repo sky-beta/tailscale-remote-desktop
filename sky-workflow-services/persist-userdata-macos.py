@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import subprocess
 import sys
@@ -73,5 +74,40 @@ for name, relative in profiles.items():
         print(f"Profile copy failed for {name}: rsync exit {result.returncode}", flush=True)
     else:
         count += 1
+
+if MODE == "restore":
+    for browser_root in (
+        home / "Library/Application Support/Google/Chrome",
+        home / "Library/Application Support/Microsoft Edge",
+    ):
+        if browser_root.exists():
+            for prefs in browser_root.glob("*/Preferences"):
+                try:
+                    data = json.loads(prefs.read_text(encoding="utf-8"))
+                    session = data.setdefault("session", {})
+                    session["restore_on_startup"] = 1
+                    session["startup_urls"] = []
+                    temporary = prefs.with_suffix(".Preferences.tmp")
+                    temporary.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+                    temporary.replace(prefs)
+                except (OSError, ValueError, TypeError) as error:
+                    print(f"Could not set previous-session restore for {browser_root.name}: {error}", flush=True)
+
+    firefox_profiles = home / "Library/Application Support/Firefox/Profiles"
+    if firefox_profiles.exists():
+        for profile in firefox_profiles.iterdir():
+            if not profile.is_dir():
+                continue
+            user_js = profile / "user.js"
+            try:
+                lines = user_js.read_text(encoding="utf-8").splitlines() if user_js.exists() else []
+                lines = [line for line in lines if "browser.startup.page" not in line and "browser.sessionstore.resume_from_crash" not in line]
+                lines.extend([
+                    'user_pref("browser.startup.page", 3);',
+                    'user_pref("browser.sessionstore.resume_from_crash", true);',
+                ])
+                user_js.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            except OSError as error:
+                print(f"Could not set Firefox previous-session restore: {error}", flush=True)
 
 print(f"{MODE.capitalize()} complete. Profile groups copied: {count}", flush=True)
