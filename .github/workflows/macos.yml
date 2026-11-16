@@ -36,44 +36,74 @@ jobs:
           sudo launchctl kickstart system/com.openssh.sshd || true
           mac-rdp-server --check-permissions || true
           tailscale ip -4
-      - name: Install latest QQ, WeChat, Bilibili and desktop links
+      - name: Start remote desktop and tunnel
         shell: bash
-        timeout-minutes: 20
+        env:
+          TUNNEL_TOKEN: ${{ secrets.MACOS_REMOTE_TUNNEL_TOKEN }}
         run: |
-          set -u
-          failures=()
+          set -euo pipefail
+          log_dir="$HOME/Library/Logs/SkyWorkflow"
+          mkdir -p "$log_dir"
+          nohup cloudflared tunnel --no-autoupdate run >"$log_dir/cloudflared.log" 2>&1 < /dev/null &
+          echo $! > "$log_dir/cloudflared.pid"
+          nohup mac-rdp-server --bind-addr 127.0.0.1 >"$log_dir/mac-rdp-server.log" 2>&1 < /dev/null &
+          echo $! > "$log_dir/mac-rdp-server.pid"
+          sleep 2
+          kill -0 "$(cat "$log_dir/mac-rdp-server.pid")"
+          kill -0 "$(cat "$log_dir/cloudflared.pid")"
+          echo 'Remote desktop and tunnel are running before app installation.'
+      - name: Mount shared AList drive
+        shell: bash
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
+          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
+        run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/mount-share-macos.py"
+      - name: Start background silent app installation
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          log_dir="$HOME/Library/Logs/SkyWorkflow"
+          mkdir -p "$log_dir"
+          rm -f "$log_dir/apps-install.status"
+          nohup /bin/bash "$GITHUB_WORKSPACE/.github/scripts/install-macos-apps.sh" >"$log_dir/apps-install.log" 2>&1 < /dev/null &
+          echo $! > "$log_dir/apps-install.pid"
+          echo "QQ, WeChat, and Bilibili installation started in the background (PID $(cat "$log_dir/apps-install.pid"))."
+      - name: Wait for background app installation
+        id: app_install_wait
+        shell: bash
+        timeout-minutes: 22
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          status="$HOME/Library/Logs/SkyWorkflow/apps-install.status"
+          deadline=$((SECONDS + 1200))
+          while [[ ! -f "$status" && $SECONDS -lt $deadline ]]; do sleep 5; done
+          if [[ ! -f "$status" ]]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo '::warning::Background app installation is still running; profile restore is deferred.'
+            exit 0
+          fi
+          cat "$status"
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+      - name: Restore macOS app profiles from AList
+        if: always() && steps.app_install_wait.outputs.ready == 'true'
+        shell: bash
+        continue-on-error: true
+        run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/persist-userdata-macos.py" restore
+      - name: Create desktop links
+        if: always()
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
           desktop="$HOME/Desktop"
           mkdir -p "$desktop"
-
-          if brew update && brew install --cask qq; then
-            if [[ -d /Applications/QQ.app ]]; then ln -sfn /Applications/QQ.app "$desktop/QQ.app"; fi
-          else
-            failures+=("QQ")
-            echo "::warning::QQ installation failed; continuing to keep remote desktop available."
-          fi
-
-          install_official_dmg() {
-            local label="$1" page="$2" url_pattern="$3"
-            local url temp mount app app_base
-            url="$(curl -fsSL --retry 3 "$page" | grep -oE "$url_pattern" | head -n 1 || true)"
-            if [[ -z "$url" ]]; then echo "::warning::$label download link not found on official page"; return 1; fi
-            temp="$(mktemp -d)"
-            mount="$temp/mount"
-            mkdir -p "$mount"
-            if ! curl -fsSL --retry 3 "$url" -o "$temp/app.dmg"; then rm -rf "$temp"; return 1; fi
-            if ! hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$temp/app.dmg" >/dev/null; then rm -rf "$temp"; return 1; fi
-            app="$(find "$mount" -maxdepth 4 -type d -name '*.app' -print -quit)"
-            if [[ -z "$app" ]]; then hdiutil detach "$mount" -quiet || true; rm -rf "$temp"; return 1; fi
-            app_base="$(basename "$app")"
-            if ! ditto "$app" "/Applications/$app_base"; then hdiutil detach "$mount" -quiet || true; rm -rf "$temp"; return 1; fi
-            hdiutil detach "$mount" -quiet || true
-            rm -rf "$temp"
-            ln -sfn "/Applications/$app_base" "$desktop/$label.app"
-          }
-
-          if ! install_official_dmg '微信' 'https://mac.weixin.qq.com/' 'https://dldir1v6\.qq\.com/weixin/Universal/Mac/WeChatMac_[^" ]+\.dmg'; then failures+=("WeChat"); fi
-          if ! install_official_dmg '哔哩哔哩' 'https://app.bilibili.com/index.html' 'https://dl\.hdslb\.com/mobile/fixed/pc_electron_mac/bili_mac\.dmg'; then failures+=("Bilibili"); fi
-
+          for app in /Applications/QQ.app /Applications/WeChat*.app /Applications/微信*.app /Applications/bilibili*.app /Applications/Bilibili*.app /Applications/哔哩哔哩*.app; do
+            if [[ -d "$app" ]]; then ln -sfn "$app" "$desktop/$(basename "$app")"; fi
+          done
           python3 - <<'PY'
           import pathlib, plistlib
           desktop = pathlib.Path.home() / "Desktop"
@@ -88,27 +118,9 @@ jobs:
               (desktop / f"{name}.webloc").write_bytes(plistlib.dumps({"URL": url}))
           PY
           echo "Desktop website shortcuts created."
-      - name: Mount shared AList drive
-        shell: bash
-        timeout-minutes: 4
-        continue-on-error: true
-        env:
-          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
-          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
-        run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/mount-share-macos.py"
-      - name: Restore macOS app profiles from AList
-        if: success()
-        shell: bash
-        continue-on-error: true
-        run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/persist-userdata-macos.py" restore
       - name: Keep session available
         shell: bash
-        env:
-          TUNNEL_TOKEN: ${{ secrets.MACOS_REMOTE_TUNNEL_TOKEN }}
-        run: |
-          cloudflared tunnel --no-autoupdate run >/tmp/cloudflared-mac.log 2>&1 &
-          mac-rdp-server --bind-addr 127.0.0.1 >/tmp/mac-rdp-server.log 2>&1 &
-          sleep 21300
+        run: sleep 21300
       - name: Save macOS app profiles to AList
         if: always()
         shell: bash

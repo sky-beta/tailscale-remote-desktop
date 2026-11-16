@@ -33,158 +33,36 @@ jobs:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
           args: --advertise-exit-node
           hostname: sky-workflow-windows
-      - name: Install latest QQ, WeChat, Bilibili and desktop links
+      - name: Configure RDP
         shell: pwsh
-        timeout-minutes: 18
+        env:
+          DESKTOP_PASSWORD: ${{ secrets.WINDOWS_DESKTOP_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:DESKTOP_PASSWORD)) { throw "请先设置 WINDOWS_DESKTOP_PASSWORD" }
+          $secure = ConvertTo-SecureString $env:DESKTOP_PASSWORD -AsPlainText -Force
+          Set-LocalUser -Name 'runneradmin' -Password $secure
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 1
+          Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
+          $ts = Get-NetAdapter | Where-Object { $_.InterfaceDescription -like '*Tailscale*' } | Select-Object -First 1
+          if (!$ts) { throw "找不到 Tailscale 网卡" }
+          New-NetFirewallRule -DisplayName 'Tailscale RDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3389 -InterfaceAlias $ts.Name | Out-Null
+          tailscale ip -4
+      - name: Start background silent app installation
+        shell: pwsh
+        continue-on-error: true
         run: |
           $ErrorActionPreference = 'Stop'
-          $downloads = Join-Path $env:RUNNER_TEMP 'desktop-apps'
-          New-Item -ItemType Directory -Force -Path $downloads | Out-Null
-          $failed = @()
-          $pf86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
-
-          function Install-OfficialExe([string]$Name, [string]$Url, [string]$FileName, [string]$Switch) {
-            try {
-              if ($Url -notmatch '^https://(qqdl\.gtimg\.cn|dldir1v6\.qq\.com|dl\.hdslb\.com)/') { throw 'download URL host not allowed' }
-              $path = Join-Path $downloads $FileName
-              Invoke-WebRequest -Uri $Url -OutFile $path
-              if ((Get-Item -LiteralPath $path).Length -lt 1MB) { throw 'installer download is unexpectedly small' }
-              $signature = Get-AuthenticodeSignature -FilePath $path
-              if ($signature.Status -ne 'Valid') { throw ("installer signature status: " + $signature.Status) }
-              $proc = Start-Process -FilePath $path -ArgumentList $Switch -Wait -PassThru
-              if ($proc.ExitCode -notin @(0, 3010)) { throw ("installer exit code " + $proc.ExitCode) }
-              Write-Host ($Name + ' installer completed.')
-            } catch {
-              $script:failed += $Name
-              Write-Warning ($Name + ' installation failed: ' + $_.Exception.Message)
-            }
-          }
-
-          try {
-            $cfg = (Invoke-WebRequest -Uri 'https://cdn-go.cn/qq-web/im.qq.com_new/latest/rainbow/windowsConfig.js').Content
-            $m = [regex]::Match($cfg, 'var params\s*=\s*(\{.*?\})\s*;')
-            if (!$m.Success) { throw 'Tencent QQ latest download configuration was not found' }
-            $qqUrl = [string](($m.Groups[1].Value | ConvertFrom-Json).ntDownloadX64Url)
-            Install-OfficialExe 'QQ' $qqUrl 'QQ-latest-x64.exe' '/s'
-          } catch {
-            $failed += 'QQ'
-            Write-Warning ('QQ latest link retrieval failed: ' + $_.Exception.Message)
-          }
-
-          try {
-            $page = (Invoke-WebRequest -Uri 'https://pc.weixin.qq.com/').Content
-            $m = [regex]::Match($page, 'https://dldir1v6\.qq\.com/weixin/Universal/Windows/WeChatWin_[^" ]+\.exe')
-            if (!$m.Success) { throw 'WeChat Windows download link was not found on its official download page' }
-            Install-OfficialExe 'WeChat' $m.Value 'WeChat-latest.exe' '/S'
-          } catch {
-            $failed += 'WeChat'
-            Write-Warning ('WeChat latest link retrieval failed: ' + $_.Exception.Message)
-          }
-
-          try {
-            $page = (Invoke-WebRequest -Uri 'https://app.bilibili.com/index.html').Content
-            $m = [regex]::Match($page, '<a[^>]+href="(https://dl\.hdslb\.com/mobile/fixed/bili_win/[^"]+)"[^>]+title="Windows客户端"')
-            if (!$m.Success) { throw 'Bilibili Windows download link was not found on its official download center' }
-            Install-OfficialExe 'Bilibili' $m.Groups[1].Value 'Bilibili-latest.exe' '/S'
-          } catch {
-            $failed += 'Bilibili'
-            Write-Warning ('Bilibili latest link retrieval failed: ' + $_.Exception.Message)
-          }
-
-          function Find-QQExecutable {
-            $roots = @(
-              (Join-Path $env:ProgramFiles 'Tencent'),
-              (Join-Path $pf86 'Tencent'),
-              (Join-Path $env:LOCALAPPDATA 'Programs\Tencent'),
-              (Join-Path $env:LOCALAPPDATA 'Tencent')
-            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
-            foreach ($root in $roots) {
-              $candidate = Get-ChildItem -LiteralPath $root -Filter 'QQ.exe' -File -Recurse -ErrorAction SilentlyContinue |
-                Where-Object { $_.FullName -match '\\Tencent\\QQNT\\QQ\.exe$' } |
-                Select-Object -First 1 -ExpandProperty FullName
-              if ($candidate) { return $candidate }
-            }
-            return $null
-          }
-
-          $qqExe = Find-QQExecutable
-          if (!$qqExe) {
-            try {
-              $winget = Get-Command winget.exe -ErrorAction Stop
-              & $winget.Source install --id Tencent.QQ.NT --exact --source winget --silent --disable-interactivity --accept-source-agreements --accept-package-agreements
-              if ($LASTEXITCODE -ne 0) { throw "WinGet exit code $LASTEXITCODE" }
-              for ($attempt = 0; $attempt -lt 12 -and !$qqExe; $attempt++) {
-                Start-Sleep -Seconds 5
-                $qqExe = Find-QQExecutable
-              }
-              if (!$qqExe) { throw 'QQ NT executable was not found after fallback installation' }
-              $failed = @($failed | Where-Object { $_ -ne 'QQ' })
-              Write-Host "QQ NT fallback installation verified: $qqExe"
-            } catch {
-              if ($failed -notcontains 'QQ') { $failed += 'QQ' }
-              Write-Warning ('QQ fallback installation failed: ' + $_.Exception.Message)
-            }
-          }
-
-          $desktop = [Environment]::GetFolderPath('Desktop')
-          $shell = New-Object -ComObject WScript.Shell
-          $shortcutRoots = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs") | Where-Object { Test-Path -LiteralPath $_ }
-          $desktopLocations = @($desktop, [Environment]::GetFolderPath('CommonDesktopDirectory')) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
-          foreach ($location in $desktopLocations) {
-            Get-ChildItem -LiteralPath $location -File -ErrorAction SilentlyContinue |
-              Where-Object { $_.Extension -in @('.lnk', '.url') -and $_.BaseName -match '^(微信|WeChat|Weixin|哔哩哔哩|bilibili)( [(][0-9]+[)])?$' } |
-              Remove-Item -Force -ErrorAction SilentlyContinue
-          }
-          $apps = @(
-            @{ Name = 'QQ'; StartNames = @('QQ'); Candidates = @($qqExe, (Join-Path $env:ProgramFiles 'Tencent\QQNT\QQ.exe'), (Join-Path $pf86 'Tencent\QQNT\QQ.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\QQNT\QQ.exe')) },
-            @{ Name = '微信'; StartNames = @('微信', 'WeChat'); Candidates = @((Join-Path $env:ProgramFiles 'Tencent\WeChat\WeChat.exe'), (Join-Path $pf86 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\WeChat\WeChat.exe')) },
-            @{ Name = '哔哩哔哩'; StartNames = @('哔哩哔哩', 'bilibili', 'Bilibili'); Candidates = @((Join-Path $env:ProgramFiles '哔哩哔哩\哔哩哔哩.exe'), (Join-Path $pf86 '哔哩哔哩\哔哩哔哩.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\哔哩哔哩\哔哩哔哩.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\bilibili\bilibili.exe')) }
-          )
-          foreach ($app in $apps) {
-            $exe = $app.Candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-            if ($exe) {
-              $link = $shell.CreateShortcut((Join-Path $desktop ($app.Name + '.lnk')))
-              $link.TargetPath = $exe
-              $link.WorkingDirectory = Split-Path -Parent $exe
-              $link.Save()
-              continue
-            }
-            $sourceLink = Get-ChildItem -Path $shortcutRoots -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue | Where-Object { $app.StartNames -contains $_.BaseName } | Select-Object -First 1
-            if ($sourceLink) {
-              Copy-Item -LiteralPath $sourceLink.FullName -Destination (Join-Path $desktop ($app.Name + '.lnk')) -Force
-            } else {
-              Write-Warning ($app.Name + ' app shortcut not created; installed executable was not found.')
-            }
-          }
-
-          $sites = [ordered]@{
-            'X' = 'https://x.com/'
-            'Google' = 'https://www.google.com/'
-            'YouTube' = 'https://www.youtube.com/'
-            'Facebook' = 'https://www.facebook.com/'
-            'xgcartoon.com' = 'https://www.xgcartoon.com/'
-          }
-          $chromeCandidates = @(
-            (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
-            (Join-Path $pf86 'Google\Chrome\Application\chrome.exe'),
-            (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
-          )
-          $chrome = $chromeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-          if (!$chrome) { throw 'Chrome executable was not found on the runner.' }
-          foreach ($site in $sites.GetEnumerator()) {
-            foreach ($extension in @('.url', '.lnk')) {
-              $oldShortcut = Join-Path $desktop ($site.Key + $extension)
-              if (Test-Path -LiteralPath $oldShortcut) { Remove-Item -LiteralPath $oldShortcut -Force }
-            }
-            $link = $shell.CreateShortcut((Join-Path $desktop ($site.Key + '.lnk')))
-            $link.TargetPath = $chrome
-            $link.Arguments = '"' + $site.Value + '"'
-            $link.WorkingDirectory = Split-Path -Parent $chrome
-            $link.IconLocation = $chrome + ',0'
-            $link.Save()
-          }
-          Write-Host 'Chrome website shortcuts created.'
-          if ($failed.Count -gt 0) { Write-Warning ('Some app installations did not complete: ' + ($failed -join ', ')) }
+          $state = Join-Path $env:LOCALAPPDATA 'SkyWorkflow'
+          New-Item -ItemType Directory -Force -Path $state | Out-Null
+          Remove-Item -LiteralPath (Join-Path $state 'apps-install.status.json') -Force -ErrorAction SilentlyContinue
+          $script = Join-Path $env:GITHUB_WORKSPACE '.github\scripts\install-windows-apps.ps1'
+          $stdout = Join-Path $state 'apps-install.log'
+          $stderr = Join-Path $state 'apps-install-error.log'
+          $arguments = '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $script + '"'
+          $proc = Start-Process -FilePath 'pwsh.exe' -ArgumentList $arguments -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+          Set-Content -LiteralPath (Join-Path $state 'apps-install.pid') -Value $proc.Id
+          Write-Host "Silent app installation started in background (PID $($proc.Id))."
       - name: Minimize initial utility windows
         shell: pwsh
         run: |
@@ -206,19 +84,6 @@ jobs:
               ForEach-Object { [void][WindowTools]::ShowWindowAsync($_.MainWindowHandle, 6) }
             Start-Sleep -Seconds 2
           }
-      - name: Mount shared AList drive
-        shell: powershell
-        timeout-minutes: 4
-        continue-on-error: true
-        env:
-          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
-          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
-        run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\mount-share-windows.ps1"'
-      - name: Restore Windows app profiles from AList
-        if: success()
-        shell: pwsh
-        continue-on-error: true
-        run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\persist-userdata-windows.ps1" -Mode Restore'
       - name: Install Simplified Chinese typing component
         shell: pwsh
         timeout-minutes: 10
@@ -274,21 +139,63 @@ jobs:
               ForEach-Object { [void][LateWindowTools]::ShowWindowAsync($_.MainWindowHandle, 6) }
             Start-Sleep -Seconds 2
           }
-      - name: Configure RDP
+      - name: Wait for background app installation
+        id: app_install_wait
         shell: pwsh
-        env:
-          DESKTOP_PASSWORD: ${{ secrets.WINDOWS_DESKTOP_PASSWORD }}
+        timeout-minutes: 22
+        continue-on-error: true
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:DESKTOP_PASSWORD)) { throw "请先设置 WINDOWS_DESKTOP_PASSWORD" }
-          $secure = ConvertTo-SecureString $env:DESKTOP_PASSWORD -AsPlainText -Force
-          Set-LocalUser -Name 'runneradmin' -Password $secure
-          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0
-          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 1
-          Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
-          $ts = Get-NetAdapter | Where-Object { $_.InterfaceDescription -like '*Tailscale*' } | Select-Object -First 1
-          if (!$ts) { throw "找不到 Tailscale 网卡" }
-          New-NetFirewallRule -DisplayName 'Tailscale RDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3389 -InterfaceAlias $ts.Name | Out-Null
-          tailscale ip -4
+          $ErrorActionPreference = 'Stop'
+          $status = Join-Path $env:LOCALAPPDATA 'SkyWorkflow\apps-install.status.json'
+          $deadline = [DateTime]::UtcNow.AddMinutes(20)
+          while (!(Test-Path -LiteralPath $status) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Seconds 5 }
+          if (!(Test-Path -LiteralPath $status)) {
+            Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'ready=false'
+            Write-Warning 'Background app installation is still running; profile restore is deferred.'
+            exit 0
+          }
+          $result = Get-Content -LiteralPath $status -Raw | ConvertFrom-Json
+          $result | ConvertTo-Json -Depth 6 | Write-Host
+          if ($result.status -eq 'complete') { Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'ready=true' }
+          else {
+            Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'ready=false'
+            Write-Warning 'Background installation ended with errors; profile restore was skipped.'
+          }
+      - name: Restore Windows app profiles from AList
+        if: always() && steps.app_install_wait.outputs.ready == 'true'
+        shell: pwsh
+        continue-on-error: true
+        run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\persist-userdata-windows.ps1" -Mode Restore'
+      - name: Create app and Chrome desktop shortcuts
+        if: always() && steps.app_install_wait.outputs.ready == 'true'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $desktop = [Environment]::GetFolderPath('Desktop')
+          $shell = New-Object -ComObject WScript.Shell
+          $pf86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+          $apps = @(
+            @{ Name='QQ'; Candidates=@((Join-Path $env:ProgramFiles 'Tencent\QQNT\QQ.exe'),(Join-Path $pf86 'Tencent\QQNT\QQ.exe'),(Join-Path $env:LOCALAPPDATA 'Programs\Tencent\QQNT\QQ.exe')) },
+            @{ Name='微信'; Candidates=@((Join-Path $env:ProgramFiles 'Tencent\WeChat\WeChat.exe'),(Join-Path $pf86 'Tencent\WeChat\WeChat.exe'),(Join-Path $env:LOCALAPPDATA 'Tencent\WeChat\WeChat.exe'),(Join-Path $env:LOCALAPPDATA 'Programs\Tencent\WeChat\WeChat.exe')) },
+            @{ Name='哔哩哔哩'; Candidates=@((Join-Path $env:ProgramFiles '哔哩哔哩\哔哩哔哩.exe'),(Join-Path $pf86 '哔哩哔哩\哔哩哔哩.exe'),(Join-Path $env:LOCALAPPDATA 'Programs\哔哩哔哩\哔哩哔哩.exe'),(Join-Path $env:LOCALAPPDATA 'Programs\bilibili\bilibili.exe')) }
+          )
+          foreach ($app in $apps) {
+            $exe = $app.Candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            if ($exe) {
+              $link = $shell.CreateShortcut((Join-Path $desktop ($app.Name + '.lnk')))
+              $link.TargetPath = $exe; $link.WorkingDirectory = Split-Path -Parent $exe; $link.Save()
+            } else { Write-Warning ($app.Name + ' executable was not found; shortcut skipped.') }
+          }
+          $chromeCandidates = @((Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),(Join-Path $pf86 'Google\Chrome\Application\chrome.exe'),(Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe'))
+          $chrome = $chromeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if ($chrome) {
+            $sites = [ordered]@{ X='https://x.com/'; Google='https://www.google.com/'; YouTube='https://www.youtube.com/'; Facebook='https://www.facebook.com/'; 'xgcartoon.com'='https://www.xgcartoon.com/' }
+            foreach ($site in $sites.GetEnumerator()) {
+              $link = $shell.CreateShortcut((Join-Path $desktop ($site.Key + '.lnk')))
+              $link.TargetPath = $chrome; $link.Arguments = '"' + $site.Value + '"'; $link.WorkingDirectory = Split-Path -Parent $chrome; $link.IconLocation = $chrome + ',0'; $link.Save()
+            }
+          } else { Write-Warning 'Chrome not found; website shortcuts skipped.' }
       - name: Keep session available
         shell: pwsh
         run: Start-Sleep -Seconds 21300
