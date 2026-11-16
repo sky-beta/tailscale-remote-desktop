@@ -109,6 +109,311 @@ jobs:
           $desktop = [Environment]::GetFolderPath('Desktop')
           $shell = New-Object -ComObject WScript.Shell
           $shortcutRoots = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs") | Where-Object { Test-Path -LiteralPath $_ }
+          $desktopLocations = @($desktop, [Environment]::GetFolderPath('CommonDesktopDirectory')) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
+          foreach ($location in $desktopLocations) {
+            Get-ChildItem -LiteralPath $location -Filter '*.lnk' -ErrorAction SilentlyContinue |
+              Where-Object { $_.BaseName -match '^(微信|WeChat|Weixin)( \(\d+\))?
+            @{ Name = 'QQ'; StartNames = @('QQ'); Candidates = @((Join-Path $env:ProgramFiles 'Tencent\QQNT\QQ.exe'), (Join-Path $pf86 'Tencent\QQNT\QQ.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\QQNT\QQ.exe')) },
+            @{ Name = '微信'; StartNames = @('微信', 'WeChat'); Candidates = @((Join-Path $env:ProgramFiles 'Tencent\WeChat\WeChat.exe'), (Join-Path $pf86 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\WeChat\WeChat.exe')) },
+            @{ Name = '哔哩哔哩'; StartNames = @('哔哩哔哩', 'bilibili', 'Bilibili'); Candidates = @((Join-Path $env:ProgramFiles '哔哩哔哩\哔哩哔哩.exe'), (Join-Path $pf86 '哔哩哔哩\哔哩哔哩.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\哔哩哔哩\哔哩哔哩.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\bilibili\bilibili.exe')) }
+          )
+          foreach ($app in $apps) {
+            $exe = $app.Candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            if ($exe) {
+              $link = $shell.CreateShortcut((Join-Path $desktop ($app.Name + '.lnk')))
+              $link.TargetPath = $exe
+              $link.WorkingDirectory = Split-Path -Parent $exe
+              $link.Save()
+              continue
+            }
+            $sourceLink = Get-ChildItem -Path $shortcutRoots -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue | Where-Object { $app.StartNames -contains $_.BaseName } | Select-Object -First 1
+            if ($sourceLink) {
+              Copy-Item -LiteralPath $sourceLink.FullName -Destination (Join-Path $desktop ($app.Name + '.lnk')) -Force
+            } else {
+              Write-Warning ($app.Name + ' app shortcut not created; installed executable was not found.')
+            }
+          }
+
+          $sites = [ordered]@{
+            'X' = 'https://x.com/'
+            'Google' = 'https://www.google.com/'
+            'YouTube' = 'https://www.youtube.com/'
+            'Facebook' = 'https://www.facebook.com/'
+            'xgcartoon.com' = 'https://www.xgcartoon.com/'
+          }
+          $chromeCandidates = @(
+            (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),
+            (Join-Path $pf86 'Google\Chrome\Application\chrome.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe')
+          )
+          $chrome = $chromeCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (!$chrome) { throw 'Chrome executable was not found on the runner.' }
+          foreach ($site in $sites.GetEnumerator()) {
+            foreach ($extension in @('.url', '.lnk')) {
+              $oldShortcut = Join-Path $desktop ($site.Key + $extension)
+              if (Test-Path -LiteralPath $oldShortcut) { Remove-Item -LiteralPath $oldShortcut -Force }
+            }
+            $link = $shell.CreateShortcut((Join-Path $desktop ($site.Key + '.lnk')))
+            $link.TargetPath = $chrome
+            $link.Arguments = '"' + $site.Value + '"'
+            $link.WorkingDirectory = Split-Path -Parent $chrome
+            $link.IconLocation = $chrome + ',0'
+            $link.Save()
+          }
+          Write-Host 'Chrome website shortcuts created.'
+          if ($failed.Count -gt 0) { Write-Warning ('Some app installations did not complete: ' + ($failed -join ', ')) }
+      - name: Minimize initial utility windows
+        shell: pwsh
+        run: |
+          Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class WindowTools { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int n); }'
+          for ($i=0; $i -lt 6; $i++) {
+            Get-Process -ErrorAction SilentlyContinue |
+              Where-Object { $_.MainWindowTitle -match '^(Performance Options|性能选项)
+      - name: Mount shared AList drive
+        shell: powershell
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
+          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
+        run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\mount-share-windows.ps1"'
+      - name: Configure Simplified Chinese display language
+        shell: powershell
+        timeout-minutes: 12
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop
+          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList zh-CN) -Force
+          Set-WinUILanguageOverride -Language zh-CN
+          Set-WinSystemLocale -SystemLocale zh-CN
+          Set-Culture zh-CN
+          Set-WinHomeLocation -GeoId 45
+          Write-Host ('UI language override: ' + (Get-WinUILanguageOverride).Language)
+          Write-Host ('System locale: ' + (Get-WinSystemLocale).Name)
+          Write-Host ('User languages: ' + ((Get-WinUserLanguageList).LanguageTag -join ', '))
+          dism.exe /online /get-intl
+      - name: Keep session available
+        shell: pwsh
+        run: Start-Sleep -Seconds 21300
+      - name: Remove temporary Tailscale node
+        if: always()
+        shell: pwsh
+        run: tailscale logout
+ } |
+              Remove-Item -Force -ErrorAction SilentlyContinue
+          }
+          $apps = @(
+            @{ Name = 'QQ'; StartNames = @('QQ'); Candidates = @((Join-Path $env:ProgramFiles 'Tencent\QQNT\QQ.exe'), (Join-Path $pf86 'Tencent\QQNT\QQ.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\QQNT\QQ.exe')) },
+            @{ Name = '微信'; StartNames = @('微信', 'WeChat'); Candidates = @((Join-Path $env:ProgramFiles 'Tencent\WeChat\WeChat.exe'), (Join-Path $pf86 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\WeChat\WeChat.exe')) },
+            @{ Name = '哔哩哔哩'; StartNames = @('哔哩哔哩', 'bilibili', 'Bilibili'); Candidates = @((Join-Path $env:ProgramFiles '哔哩哔哩\哔哩哔哩.exe'), (Join-Path $pf86 '哔哩哔哩\哔哩哔哩.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\哔哩哔哩\哔哩哔哩.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\bilibili\bilibili.exe')) }
+          )
+          foreach ($app in $apps) {
+            $exe = $app.Candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            if ($exe) {
+              $link = $shell.CreateShortcut((Join-Path $desktop ($app.Name + '.lnk')))
+              $link.TargetPath = $exe
+              $link.WorkingDirectory = Split-Path -Parent $exe
+              $link.Save()
+              continue
+            }
+            $sourceLink = Get-ChildItem -Path $shortcutRoots -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue | Where-Object { $app.StartNames -contains $_.BaseName } | Select-Object -First 1
+            if ($sourceLink) {
+              Copy-Item -LiteralPath $sourceLink.FullName -Destination (Join-Path $desktop ($app.Name + '.lnk')) -Force
+            } else {
+              Write-Warning ($app.Name + ' app shortcut not created; installed executable was not found.')
+            }
+          }
+
+          $sites = [ordered]@{
+            'X' = 'https://x.com/'
+            'Google' = 'https://www.google.com/'
+            'YouTube' = 'https://www.youtube.com/'
+            'Facebook' = 'https://www.facebook.com/'
+            'xgcartoon.com' = 'https://www.xgcartoon.com/'
+          }
+          foreach ($site in $sites.GetEnumerator()) {
+            $urlFile = Join-Path $desktop ($site.Key + '.url')
+            Set-Content -LiteralPath $urlFile -Value ("[InternetShortcut]" + [Environment]::NewLine + "URL=" + $site.Value) -Encoding ASCII
+          }
+          Write-Host 'Desktop website shortcuts created.'
+          if ($failed.Count -gt 0) { Write-Warning ('Some app installations did not complete: ' + ($failed -join ', ')) }
+      - name: Minimize initial utility windows
+        shell: pwsh
+        run: |
+          Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class WindowTools { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int n); }'
+          for ($i=0; $i -lt 3; $i++) {
+            Get-Process -Name WindowsTerminal,tailscale-ipn -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [void][WindowTools]::ShowWindowAsync($_.MainWindowHandle, 6) }
+            Start-Sleep -Seconds 2
+          }
+      - name: Mount shared AList drive
+        shell: powershell
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
+          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
+        run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\mount-share-windows.ps1"'
+      - name: Configure Simplified Chinese display language
+        shell: powershell
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop
+          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList zh-CN) -Force
+          Set-WinUILanguageOverride -Language zh-CN
+          Set-Culture zh-CN
+          dism.exe /online /get-intl
+      - name: Keep session available
+        shell: pwsh
+        run: Start-Sleep -Seconds 21300
+      - name: Remove temporary Tailscale node
+        if: always()
+        shell: pwsh
+        run: tailscale logout
+ } |
+              ForEach-Object {
+                $proc = $_
+                [void]$proc.CloseMainWindow()
+                Start-Sleep -Milliseconds 500
+                $proc.Refresh()
+                if (!$proc.HasExited -and $proc.MainWindowTitle -match '^(Performance Options|性能选项)
+      - name: Mount shared AList drive
+        shell: powershell
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
+          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
+        run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\mount-share-windows.ps1"'
+      - name: Configure Simplified Chinese display language
+        shell: powershell
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop
+          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList zh-CN) -Force
+          Set-WinUILanguageOverride -Language zh-CN
+          Set-Culture zh-CN
+          dism.exe /online /get-intl
+      - name: Keep session available
+        shell: pwsh
+        run: Start-Sleep -Seconds 21300
+      - name: Remove temporary Tailscale node
+        if: always()
+        shell: pwsh
+        run: tailscale logout
+ } |
+              Remove-Item -Force -ErrorAction SilentlyContinue
+          }
+          $apps = @(
+            @{ Name = 'QQ'; StartNames = @('QQ'); Candidates = @((Join-Path $env:ProgramFiles 'Tencent\QQNT\QQ.exe'), (Join-Path $pf86 'Tencent\QQNT\QQ.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\QQNT\QQ.exe')) },
+            @{ Name = '微信'; StartNames = @('微信', 'WeChat'); Candidates = @((Join-Path $env:ProgramFiles 'Tencent\WeChat\WeChat.exe'), (Join-Path $pf86 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\WeChat\WeChat.exe')) },
+            @{ Name = '哔哩哔哩'; StartNames = @('哔哩哔哩', 'bilibili', 'Bilibili'); Candidates = @((Join-Path $env:ProgramFiles '哔哩哔哩\哔哩哔哩.exe'), (Join-Path $pf86 '哔哩哔哩\哔哩哔哩.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\哔哩哔哩\哔哩哔哩.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\bilibili\bilibili.exe')) }
+          )
+          foreach ($app in $apps) {
+            $exe = $app.Candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            if ($exe) {
+              $link = $shell.CreateShortcut((Join-Path $desktop ($app.Name + '.lnk')))
+              $link.TargetPath = $exe
+              $link.WorkingDirectory = Split-Path -Parent $exe
+              $link.Save()
+              continue
+            }
+            $sourceLink = Get-ChildItem -Path $shortcutRoots -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue | Where-Object { $app.StartNames -contains $_.BaseName } | Select-Object -First 1
+            if ($sourceLink) {
+              Copy-Item -LiteralPath $sourceLink.FullName -Destination (Join-Path $desktop ($app.Name + '.lnk')) -Force
+            } else {
+              Write-Warning ($app.Name + ' app shortcut not created; installed executable was not found.')
+            }
+          }
+
+          $sites = [ordered]@{
+            'X' = 'https://x.com/'
+            'Google' = 'https://www.google.com/'
+            'YouTube' = 'https://www.youtube.com/'
+            'Facebook' = 'https://www.facebook.com/'
+            'xgcartoon.com' = 'https://www.xgcartoon.com/'
+          }
+          foreach ($site in $sites.GetEnumerator()) {
+            $urlFile = Join-Path $desktop ($site.Key + '.url')
+            Set-Content -LiteralPath $urlFile -Value ("[InternetShortcut]" + [Environment]::NewLine + "URL=" + $site.Value) -Encoding ASCII
+          }
+          Write-Host 'Desktop website shortcuts created.'
+          if ($failed.Count -gt 0) { Write-Warning ('Some app installations did not complete: ' + ($failed -join ', ')) }
+      - name: Minimize initial utility windows
+        shell: pwsh
+        run: |
+          Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class WindowTools { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int n); }'
+          for ($i=0; $i -lt 3; $i++) {
+            Get-Process -Name WindowsTerminal,tailscale-ipn -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | ForEach-Object { [void][WindowTools]::ShowWindowAsync($_.MainWindowHandle, 6) }
+            Start-Sleep -Seconds 2
+          }
+      - name: Mount shared AList drive
+        shell: powershell
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
+          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
+        run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\mount-share-windows.ps1"'
+      - name: Configure Simplified Chinese display language
+        shell: powershell
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop
+          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList zh-CN) -Force
+          Set-WinUILanguageOverride -Language zh-CN
+          Set-Culture zh-CN
+          dism.exe /online /get-intl
+      - name: Keep session available
+        shell: pwsh
+        run: Start-Sleep -Seconds 21300
+      - name: Remove temporary Tailscale node
+        if: always()
+        shell: pwsh
+        run: tailscale logout
+) {
+                  Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                }
+              }
+            Get-Process -Name WindowsTerminal,tailscale-ipn -ErrorAction SilentlyContinue |
+              Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
+              ForEach-Object { [void][WindowTools]::ShowWindowAsync($_.MainWindowHandle, 6) }
+            Start-Sleep -Seconds 2
+          }
+      - name: Mount shared AList drive
+        shell: powershell
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
+          SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
+        run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\mount-share-windows.ps1"'
+      - name: Configure Simplified Chinese display language
+        shell: powershell
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop
+          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList zh-CN) -Force
+          Set-WinUILanguageOverride -Language zh-CN
+          Set-Culture zh-CN
+          dism.exe /online /get-intl
+      - name: Keep session available
+        shell: pwsh
+        run: Start-Sleep -Seconds 21300
+      - name: Remove temporary Tailscale node
+        if: always()
+        shell: pwsh
+        run: tailscale logout
+ } |
+              Remove-Item -Force -ErrorAction SilentlyContinue
+          }
           $apps = @(
             @{ Name = 'QQ'; StartNames = @('QQ'); Candidates = @((Join-Path $env:ProgramFiles 'Tencent\QQNT\QQ.exe'), (Join-Path $pf86 'Tencent\QQNT\QQ.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\QQNT\QQ.exe')) },
             @{ Name = '微信'; StartNames = @('微信', 'WeChat'); Candidates = @((Join-Path $env:ProgramFiles 'Tencent\WeChat\WeChat.exe'), (Join-Path $pf86 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Tencent\WeChat\WeChat.exe'), (Join-Path $env:LOCALAPPDATA 'Programs\Tencent\WeChat\WeChat.exe')) },
