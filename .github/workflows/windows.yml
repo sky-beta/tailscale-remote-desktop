@@ -111,8 +111,8 @@ jobs:
           $shortcutRoots = @("$env:ProgramData\Microsoft\Windows\Start Menu\Programs", "$env:APPDATA\Microsoft\Windows\Start Menu\Programs") | Where-Object { Test-Path -LiteralPath $_ }
           $desktopLocations = @($desktop, [Environment]::GetFolderPath('CommonDesktopDirectory')) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
           foreach ($location in $desktopLocations) {
-            Get-ChildItem -LiteralPath $location -Filter '*.lnk' -ErrorAction SilentlyContinue |
-              Where-Object { $_.BaseName -match '^(微信|WeChat|Weixin)( (d+))?$' } |
+            Get-ChildItem -LiteralPath $location -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -in @('.lnk', '.url') -and $_.BaseName -match '^(微信|WeChat|Weixin|哔哩哔哩|bilibili)( [(][0-9]+[)])?$' } |
               Remove-Item -Force -ErrorAction SilentlyContinue
           }
           $apps = @(
@@ -181,7 +181,7 @@ jobs:
                   Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
                 }
               }
-            Get-Process -Name WindowsTerminal,tailscale-ipn -ErrorAction SilentlyContinue |
+            Get-Process -Name WindowsTerminal,powershell,pwsh,OpenConsole,tailscale-ipn -ErrorAction SilentlyContinue |
               Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
               ForEach-Object { [void][WindowTools]::ShowWindowAsync($_.MainWindowHandle, 6) }
             Start-Sleep -Seconds 2
@@ -209,6 +209,28 @@ jobs:
           Write-Host ('System locale: ' + (Get-WinSystemLocale).Name)
           Write-Host ('User languages: ' + ((Get-WinUserLanguageList).LanguageTag -join ', '))
           dism.exe /online /get-intl
+      - name: Dismiss startup dialogs after language setup
+        shell: pwsh
+        run: |
+          Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class LateWindowTools { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int n); }'
+          $popupPattern = '^(Performance Options|性能选项|System Properties|系统属性)$'
+          for ($i=0; $i -lt 15; $i++) {
+            Get-Process -ErrorAction SilentlyContinue |
+              Where-Object { $_.MainWindowTitle -match $popupPattern } |
+              ForEach-Object {
+                $proc = $_
+                [void]$proc.CloseMainWindow()
+                Start-Sleep -Milliseconds 500
+                $proc.Refresh()
+                if (!$proc.HasExited -and $proc.MainWindowTitle -match $popupPattern) {
+                  Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                }
+              }
+            Get-Process -Name WindowsTerminal,powershell,pwsh,OpenConsole,tailscale-ipn -ErrorAction SilentlyContinue |
+              Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
+              ForEach-Object { [void][LateWindowTools]::ShowWindowAsync($_.MainWindowHandle, 6) }
+            Start-Sleep -Seconds 2
+          }
       - name: Keep session available
         shell: pwsh
         run: Start-Sleep -Seconds 21300
