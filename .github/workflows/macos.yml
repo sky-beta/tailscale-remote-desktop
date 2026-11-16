@@ -74,9 +74,13 @@ jobs:
           set -euo pipefail
           desktop="$HOME/Desktop"
           mkdir -p "$desktop"
-          ln -sfn /Applications/QQ.app "$desktop/QQ.app"
-          ln -sfn /Applications/WeChat.app "$desktop/WeChat.app"
-          ln -sfn /Applications/哔哩哔哩.app "$desktop/哔哩哔哩.app"
+          for link in "$desktop"/*.app; do
+            [[ -L "$link" && ! -e "$link" ]] && rm -f "$link"
+          done
+          shopt -s nullglob
+          for app in /Applications/QQ*.app /Applications/WeChat*.app /Applications/微信*.app /Applications/bilibili*.app /Applications/Bilibili*.app /Applications/哔哩哔哩*.app; do
+            [[ -d "$app" ]] && ln -sfn "$app" "$desktop/$(basename "$app")"
+          done
           python3 - <<'PY'
           import pathlib, plistlib
           desktop = pathlib.Path.home() / "Desktop"
@@ -112,8 +116,12 @@ jobs:
           set -euo pipefail
           desktop="$HOME/Desktop"
           mkdir -p "$desktop"
-          for app in /Applications/QQ.app /Applications/WeChat*.app /Applications/微信*.app /Applications/bilibili*.app /Applications/Bilibili*.app /Applications/哔哩哔哩*.app; do
-            if [[ -d "$app" ]]; then ln -sfn "$app" "$desktop/$(basename "$app")"; fi
+          for link in "$desktop"/*.app; do
+            [[ -L "$link" && ! -e "$link" ]] && rm -f "$link"
+          done
+          shopt -s nullglob
+          for app in /Applications/QQ*.app /Applications/WeChat*.app /Applications/微信*.app /Applications/bilibili*.app /Applications/Bilibili*.app /Applications/哔哩哔哩*.app; do
+            [[ -d "$app" ]] && ln -sfn "$app" "$desktop/$(basename "$app")"
           done
           python3 - <<'PY'
           import pathlib, plistlib
@@ -152,6 +160,22 @@ jobs:
           else
             echo '::warning::App installation did not finish within 30 minutes; desktop remains available.'
           fi
+      - name: Refresh installed macOS app shortcuts
+        if: always()
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          desktop="$HOME/Desktop"
+          mkdir -p "$desktop"
+          for link in "$desktop"/*.app; do
+            [[ -L "$link" && ! -e "$link" ]] && rm -f "$link"
+          done
+          shopt -s nullglob
+          for app in /Applications/QQ*.app /Applications/WeChat*.app /Applications/微信*.app /Applications/bilibili*.app /Applications/Bilibili*.app /Applications/哔哩哔哩*.app; do
+            [[ -d "$app" ]] && ln -sfn "$app" "$desktop/$(basename "$app")"
+          done
+          echo 'Removed dangling app links and linked only installed app bundles.'
       - name: Keep session available
         shell: bash
         run: |

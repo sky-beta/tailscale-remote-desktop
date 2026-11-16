@@ -24,28 +24,38 @@ trap mark_failed_if_interrupted EXIT
 
 install_qq() {
   record_status 'QQ：更新中'
-  brew update && brew install --cask qq
+  local config_url='https://im.qq.com/proxy/domain/qq-web.cdn-go.cn/im.qq.com_new/latest/rainbow/pcConfig.json'
+  local url
+  url="$(curl -fsSL --retry 3 "$config_url" | python3 -c 'import json,sys; print(json.load(sys.stdin)["macOS"]["downloadUrl"])')" || return 1
+  [[ -n "$url" ]] || { echo 'QQ download URL missing in Tencent official config' >&2; return 1; }
+  install_dmg_url 'QQ' "$url"
 }
 
-install_official_dmg() {
-  local label="$1" page="$2" url_pattern="$3"
-  local url temp mount app app_base
-  record_status "$label：获取下载地址"
-  url="$(curl -fsSL --retry 3 "$page" | grep -oE "$url_pattern" | head -n 1 || true)"
-  [[ -n "$url" ]] || { echo "$label download link not found on official page" >&2; return 1; }
+install_dmg_url() {
+  local label="$1" url="$2"
+  local temp mount app app_base
   temp="$(mktemp -d)"
   mount="$temp/mount"
   mkdir -p "$mount"
-  record_status "$label：下载中"
+  record_status "${label}：下载中"
   if ! curl -fsSL --retry 3 "$url" -o "$temp/app.dmg"; then rm -rf "$temp"; return 1; fi
   if ! hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$temp/app.dmg" >/dev/null; then rm -rf "$temp"; return 1; fi
   app="$(find "$mount" -maxdepth 4 -type d -name '*.app' -print -quit)"
   if [[ -z "$app" ]]; then hdiutil detach "$mount" -quiet || true; rm -rf "$temp"; return 1; fi
   app_base="$(basename "$app")"
-  record_status "$label：静默安装中"
+  record_status "${label}：静默安装中"
   if ! ditto "$app" "/Applications/$app_base"; then hdiutil detach "$mount" -quiet || true; rm -rf "$temp"; return 1; fi
   hdiutil detach "$mount" -quiet || true
   rm -rf "$temp"
+}
+
+install_official_dmg() {
+  local label="$1" page="$2" url_pattern="$3"
+  local url
+  record_status "${label}：获取下载地址"
+  url="$(curl -fsSL --retry 3 "$page" | grep -oE "$url_pattern" | head -n 1 || true)"
+  [[ -n "$url" ]] || { echo "${label} download link not found on official page" >&2; return 1; }
+  install_dmg_url "$label" "$url"
 }
 
 install_qq > "$state_dir/qq-install.log" 2>&1 &
@@ -58,7 +68,7 @@ bilibili_pid=$!
 if wait "$qq_pid"; then qq_status=ok; else qq_status=failed; fi
 if wait "$wechat_pid"; then wechat_status=ok; else wechat_status=failed; fi
 if wait "$bilibili_pid"; then bilibili_status=ok; else bilibili_status=failed; fi
-record_status "QQ：$qq_status；微信：$wechat_status；哔哩哔哩：$bilibili_status"
+record_status "QQ：${qq_status}；微信：${wechat_status}；哔哩哔哩：${bilibili_status}"
 
 {
   printf 'status=complete\n'

@@ -70,16 +70,18 @@ jobs:
           $desktop = [Environment]::GetFolderPath('Desktop')
           $shell = New-Object -ComObject WScript.Shell
           $pf86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
-          $targets = @{
-            'QQ' = (Join-Path $env:ProgramFiles 'Tencent\QQNT\QQ.exe')
-            '微信' = (Join-Path $env:ProgramFiles 'Tencent\WeChat\WeChat.exe')
-            '哔哩哔哩' = (Join-Path $env:ProgramFiles '哔哩哔哩\哔哩哔哩.exe')
-          }
-          foreach ($name in $targets.Keys) {
-            $path = Join-Path $desktop ($name + '.lnk')
+          $targets = @(
+            @{ Name='QQ'; Candidates=@((Join-Path $env:ProgramFiles 'Tencent\QQNT\QQ.exe'),(Join-Path $pf86 'Tencent\QQNT\QQ.exe'),(Join-Path $env:LOCALAPPDATA 'Programs\Tencent\QQNT\QQ.exe'),(Join-Path $env:LOCALAPPDATA 'Tencent\QQNT\QQ.exe')) },
+            @{ Name='微信'; Candidates=@((Join-Path $env:ProgramFiles 'Tencent\WeChat\WeChat.exe'),(Join-Path $pf86 'Tencent\WeChat\WeChat.exe'),(Join-Path $env:LOCALAPPDATA 'Tencent\WeChat\WeChat.exe'),(Join-Path $env:LOCALAPPDATA 'Programs\Tencent\WeChat\WeChat.exe')) },
+            @{ Name='哔哩哔哩'; Candidates=@((Join-Path $env:ProgramFiles '哔哩哔哩\哔哩哔哩.exe'),(Join-Path $pf86 '哔哩哔哩\哔哩哔哩.exe'),(Join-Path $env:LOCALAPPDATA 'Programs\哔哩哔哩\哔哩哔哩.exe'),(Join-Path $env:LOCALAPPDATA 'Programs\bilibili\bilibili.exe')) }
+          )
+          foreach ($app in $targets) {
+            $target = $app.Candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            $path = Join-Path $desktop ($app.Name + '.lnk')
+            if (!$target) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue; continue }
             $link = $shell.CreateShortcut($path)
-            $link.TargetPath = $targets[$name]
-            $link.WorkingDirectory = Split-Path -Parent $targets[$name]
+            $link.TargetPath = $target
+            $link.WorkingDirectory = Split-Path -Parent $target
             $link.Save()
           }
           $chromeCandidates = @((Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'),(Join-Path $pf86 'Google\Chrome\Application\chrome.exe'),(Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe'))
@@ -227,9 +229,12 @@ jobs:
           )
           foreach ($app in $apps) {
             $exe = $app.Candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            $linkPath = Join-Path $desktop ($app.Name + '.lnk')
             if ($exe) {
-              $link = $shell.CreateShortcut((Join-Path $desktop ($app.Name + '.lnk')))
+              $link = $shell.CreateShortcut($linkPath)
               $link.TargetPath = $exe; $link.WorkingDirectory = Split-Path -Parent $exe; $link.Save()
+            } else {
+              Remove-Item -LiteralPath $linkPath -Force -ErrorAction SilentlyContinue
             }
           }
       - name: Keep session available
