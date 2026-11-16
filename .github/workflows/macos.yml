@@ -13,6 +13,9 @@ jobs:
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
+      - name: Mark workflow startup time
+        shell: bash
+        run: mkdir -p "$HOME/Library/Logs/SkyWorkflow" && date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/Library/Logs/SkyWorkflow/workflow-started"
       - name: Install mac-rdp-server
         run: brew install DawidAdamski/mac-rdp-server/mac-rdp-server cloudflared
       - name: Enable IP forwarding
@@ -60,6 +63,34 @@ jobs:
           SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
           SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
         run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/mount-share-macos.py"
+      - name: Restore macOS user profiles from AList
+        shell: bash
+        continue-on-error: true
+        run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/persist-userdata-macos.py" restore
+      - name: Load desktop shortcuts before app updates
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          desktop="$HOME/Desktop"
+          mkdir -p "$desktop"
+          ln -sfn /Applications/QQ.app "$desktop/QQ.app"
+          ln -sfn /Applications/WeChat.app "$desktop/WeChat.app"
+          ln -sfn /Applications/哔哩哔哩.app "$desktop/哔哩哔哩.app"
+          python3 - <<'PY'
+          import pathlib, plistlib
+          desktop = pathlib.Path.home() / "Desktop"
+          sites = {
+              "X": "https://x.com/",
+              "Google": "https://www.google.com/",
+              "YouTube": "https://www.youtube.com/",
+              "Facebook": "https://www.facebook.com/",
+              "xgcartoon.com": "https://www.xgcartoon.com/",
+          }
+          for name, url in sites.items():
+              (desktop / f"{name}.webloc").write_bytes(plistlib.dumps({"URL": url}))
+          PY
+          echo 'Saved app and website shortcuts are loaded before background installs.'
       - name: Start background silent app installation
         shell: bash
         continue-on-error: true
@@ -68,31 +99,11 @@ jobs:
           log_dir="$HOME/Library/Logs/SkyWorkflow"
           mkdir -p "$log_dir"
           rm -f "$log_dir/apps-install.status"
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$log_dir/apps-install.startedAt"
+          osascript -e 'display notification "QQ、微信和哔哩哔哩将在后台静默更新，桌面快捷方式已加载。" with title "桌面应用更新"' || true
           nohup /bin/bash "$GITHUB_WORKSPACE/.github/scripts/install-macos-apps.sh" >"$log_dir/apps-install.log" 2>&1 < /dev/null &
           echo $! > "$log_dir/apps-install.pid"
           echo "QQ, WeChat, and Bilibili installation started in the background (PID $(cat "$log_dir/apps-install.pid"))."
-      - name: Wait for background app installation
-        id: app_install_wait
-        shell: bash
-        timeout-minutes: 22
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          status="$HOME/Library/Logs/SkyWorkflow/apps-install.status"
-          deadline=$((SECONDS + 1200))
-          while [[ ! -f "$status" && $SECONDS -lt $deadline ]]; do sleep 5; done
-          if [[ ! -f "$status" ]]; then
-            echo 'ready=false' >> "$GITHUB_OUTPUT"
-            echo '::warning::Background app installation is still running; profile restore is deferred.'
-            exit 0
-          fi
-          cat "$status"
-          echo 'ready=true' >> "$GITHUB_OUTPUT"
-      - name: Restore macOS app profiles from AList
-        if: always() && steps.app_install_wait.outputs.ready == 'true'
-        shell: bash
-        continue-on-error: true
-        run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/persist-userdata-macos.py" restore
       - name: Create desktop links
         if: always()
         shell: bash
@@ -118,9 +129,38 @@ jobs:
               (desktop / f"{name}.webloc").write_bytes(plistlib.dumps({"URL": url}))
           PY
           echo "Desktop website shortcuts created."
+      - name: Measure background app installation time
+        shell: bash
+        timeout-minutes: 32
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          log_dir="$HOME/Library/Logs/SkyWorkflow"
+          status="$log_dir/apps-install.status"
+          started="$log_dir/apps-install.startedAt"
+          deadline=$((SECONDS + 1800))
+          while [[ $SECONDS -lt $deadline ]]; do
+            if [[ -f "$status" ]] && grep -q '^status=complete$' "$status"; then break; fi
+            sleep 5
+          done
+          if [[ -f "$status" && -f "$started" ]] && grep -q '^status=complete$' "$status"; then
+            start_epoch="$(date -j -f '%Y-%m-%dT%H:%M:%SZ' "$(cat "$started")" '+%s')"
+            now_epoch="$(date -u '+%s')"
+            elapsed=$((now_epoch - start_epoch))
+            cat "$status"
+            echo "App installation elapsed: ${elapsed}s"
+          else
+            echo '::warning::App installation did not finish within 30 minutes; desktop remains available.'
+          fi
       - name: Keep session available
         shell: bash
-        run: sleep 21300
+        run: |
+          start_epoch="$(date -j -f '%Y-%m-%dT%H:%M:%SZ' "$(cat "$HOME/Library/Logs/SkyWorkflow/workflow-started")" '+%s')"
+          now_epoch="$(date -u '+%s')"
+          remaining=$((21600 - (now_epoch - start_epoch)))
+          (( remaining > 0 )) || remaining=0
+          echo "Workflow age: $((now_epoch - start_epoch))s; keeping desktop for ${remaining}s."
+          sleep "$remaining"
       - name: Save macOS app profiles to AList
         if: always()
         shell: bash

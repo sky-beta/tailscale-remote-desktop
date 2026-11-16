@@ -9,14 +9,32 @@ $results = @()
 $fatalError = $null
 $failed = @()
 
+function Set-AppState([string]$Name, [string]$State, [string]$Detail = '') {
+    $path = Join-Path $stateDirectory ("app-$Name.json")
+    $temporary = "$path.tmp"
+    [ordered]@{ name = $Name; state = $State; detail = $Detail; updatedAt = [DateTimeOffset]::Now.ToString('o') } |
+        ConvertTo-Json -Compress | Set-Content -LiteralPath $temporary -Encoding utf8
+    Move-Item -LiteralPath $temporary -Destination $path -Force
+}
+
 try {
+    foreach ($name in @('QQ', 'WeChat', 'Bilibili')) { Set-AppState $name '等待安装' }
     $results = @(
         @('QQ', 'WeChat', 'Bilibili') | ForEach-Object -Parallel {
             $name = [string]$_
             $downloadRoot = $using:downloads
+            $stateRoot = $using:stateDirectory
             $ErrorActionPreference = 'Stop'
             $ProgressPreference = 'SilentlyContinue'
+            function Set-ParallelAppState([string]$State, [string]$Detail = '') {
+                $path = Join-Path $stateRoot ("app-$name.json")
+                $temporary = "$path.tmp"
+                [ordered]@{ name = $name; state = $State; detail = $Detail; updatedAt = [DateTimeOffset]::Now.ToString('o') } |
+                    ConvertTo-Json -Compress | Set-Content -LiteralPath $temporary -Encoding utf8
+                Move-Item -LiteralPath $temporary -Destination $path -Force
+            }
             try {
+                Set-ParallelAppState '获取下载地址'
                 switch ($name) {
                     'QQ' {
                         $config = Invoke-RestMethod -Uri 'https://cdn-go.cn/qq-web/im.qq.com_new/latest/rainbow/windowsConfig.js' -TimeoutSec 45
@@ -44,15 +62,19 @@ try {
                     }
                 }
                 if ($url -notmatch '^https://(qqdl\.gtimg\.cn|dldir1v6\.qq\.com|dl\.hdslb\.com)/') { throw 'Official download URL host was not accepted' }
+                Set-ParallelAppState '下载中'
                 $installer = Join-Path $downloadRoot $fileName
                 Invoke-WebRequest -Uri $url -OutFile $installer -TimeoutSec 180
                 if ((Get-Item -LiteralPath $installer).Length -lt 1MB) { throw 'Installer download was unexpectedly small' }
                 $signature = Get-AuthenticodeSignature -FilePath $installer
                 if ($signature.Status -ne 'Valid') { throw ('Installer signature status: ' + $signature.Status) }
+                Set-ParallelAppState '静默安装中'
                 $process = Start-Process -FilePath $installer -ArgumentList $switch -Wait -PassThru -WindowStyle Hidden
                 if ($process.ExitCode -notin @(0, 3010)) { throw ('Installer exit code ' + $process.ExitCode) }
+                Set-ParallelAppState '完成'
                 [pscustomobject]@{ Name = $name; Success = $true; Error = '' }
             } catch {
+                Set-ParallelAppState '失败' $_.Exception.Message
                 [pscustomobject]@{ Name = $name; Success = $false; Error = $_.Exception.Message }
             }
         } -ThrottleLimit 3
@@ -78,6 +100,7 @@ try {
     $qqExe = Find-QQExecutable
     if (!$qqExe) {
         try {
+            Set-AppState 'QQ' 'WinGet 静默安装中'
             $winget = Get-Command winget.exe -ErrorAction Stop
             & $winget.Source install --id Tencent.QQ.NT --exact --source winget --silent --disable-interactivity --accept-source-agreements --accept-package-agreements
             if ($LASTEXITCODE -ne 0) { throw ('WinGet exit code ' + $LASTEXITCODE) }
@@ -86,9 +109,11 @@ try {
                 $qqExe = Find-QQExecutable
             }
             if (!$qqExe) { throw 'QQ NT executable was not found after fallback installation' }
+            Set-AppState 'QQ' '完成'
             $results = @($results | Where-Object { $_.Name -ne 'QQ' }) + [pscustomobject]@{ Name = 'QQ'; Success = $true; Error = '' }
             Write-Output ('QQ NT fallback installation verified: ' + $qqExe)
         } catch {
+            Set-AppState 'QQ' '失败' $_.Exception.Message
             $results = @($results | Where-Object { $_.Name -ne 'QQ' }) + [pscustomobject]@{ Name = 'QQ'; Success = $false; Error = ('Fallback install: ' + $_.Exception.Message) }
         }
     }
