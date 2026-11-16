@@ -96,6 +96,11 @@ jobs:
           SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
           SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
         run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/mount-share-macos.py"
+      - name: Restore macOS app profiles from AList
+        if: success()
+        shell: bash
+        continue-on-error: true
+        run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/persist-userdata-macos.py" restore
       - name: Keep session available
         shell: bash
         env:
@@ -104,6 +109,12 @@ jobs:
           cloudflared tunnel --no-autoupdate run >/tmp/cloudflared-mac.log 2>&1 &
           mac-rdp-server --bind-addr 127.0.0.1 >/tmp/mac-rdp-server.log 2>&1 &
           sleep 21300
+      - name: Save macOS app profiles to AList
+        if: always()
+        shell: bash
+        timeout-minutes: 15
+        continue-on-error: true
+        run: python3 "$GITHUB_WORKSPACE/sky-workflow-services/persist-userdata-macos.py" save
       - name: Remove temporary Tailscale node
         if: always()
         run: sudo tailscale logout || true
