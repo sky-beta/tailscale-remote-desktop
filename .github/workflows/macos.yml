@@ -36,6 +36,58 @@ jobs:
           sudo launchctl kickstart system/com.openssh.sshd || true
           mac-rdp-server --check-permissions || true
           tailscale ip -4
+      - name: Install latest QQ, WeChat, Bilibili and desktop links
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -u
+          failures=()
+          desktop="$HOME/Desktop"
+          mkdir -p "$desktop"
+
+          if brew update && brew install --cask qq; then
+            if [[ -d /Applications/QQ.app ]]; then ln -sfn /Applications/QQ.app "$desktop/QQ.app"; fi
+          else
+            failures+=("QQ")
+            echo "::warning::QQ installation failed; continuing to keep remote desktop available."
+          fi
+
+          install_official_dmg() {
+            local label="$1" page="$2" url_pattern="$3"
+            local url temp mount app app_base
+            url="$(curl -fsSL --retry 3 "$page" | grep -oE "$url_pattern" | head -n 1 || true)"
+            if [[ -z "$url" ]]; then echo "::warning::$label download link not found on official page"; return 1; fi
+            temp="$(mktemp -d)"
+            mount="$temp/mount"
+            mkdir -p "$mount"
+            if ! curl -fsSL --retry 3 "$url" -o "$temp/app.dmg"; then rm -rf "$temp"; return 1; fi
+            if ! hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$temp/app.dmg" >/dev/null; then rm -rf "$temp"; return 1; fi
+            app="$(find "$mount" -maxdepth 4 -type d -name '*.app' -print -quit)"
+            if [[ -z "$app" ]]; then hdiutil detach "$mount" -quiet || true; rm -rf "$temp"; return 1; fi
+            app_base="$(basename "$app")"
+            if ! ditto "$app" "/Applications/$app_base"; then hdiutil detach "$mount" -quiet || true; rm -rf "$temp"; return 1; fi
+            hdiutil detach "$mount" -quiet || true
+            rm -rf "$temp"
+            ln -sfn "/Applications/$app_base" "$desktop/$label.app"
+          }
+
+          if ! install_official_dmg '微信' 'https://mac.weixin.qq.com/' 'https://dldir1v6\.qq\.com/weixin/Universal/Mac/WeChatMac_[^" ]+\.dmg'; then failures+=("WeChat"); fi
+          if ! install_official_dmg '哔哩哔哩' 'https://app.bilibili.com/index.html' 'https://dl\.hdslb\.com/mobile/fixed/pc_electron_mac/bili_mac\.dmg'; then failures+=("Bilibili"); fi
+
+          python3 - <<'PY'
+          import pathlib, plistlib
+          desktop = pathlib.Path.home() / "Desktop"
+          sites = {
+              "X": "https://x.com/",
+              "Google": "https://www.google.com/",
+              "YouTube": "https://www.youtube.com/",
+              "Facebook": "https://www.facebook.com/",
+              "xgcartoon.com": "https://www.xgcartoon.com/",
+          }
+          for name, url in sites.items():
+              (desktop / f"{name}.webloc").write_bytes(plistlib.dumps({"URL": url}))
+          PY
+          echo "Desktop website shortcuts created."
       - name: Mount shared AList drive
         shell: bash
         timeout-minutes: 4
