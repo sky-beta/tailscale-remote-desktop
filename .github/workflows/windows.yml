@@ -171,13 +171,13 @@ jobs:
           Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class WindowTools { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int n); }'
           for ($i=0; $i -lt 6; $i++) {
             Get-Process -ErrorAction SilentlyContinue |
-              Where-Object { $_.MainWindowTitle -match '^(Performance Options|性能选项)$' } |
+              Where-Object { $_.MainWindowTitle -match '^(Performance Options|性能选项|System Properties|系统属性)$' } |
               ForEach-Object {
                 $proc = $_
                 [void]$proc.CloseMainWindow()
                 Start-Sleep -Milliseconds 500
                 $proc.Refresh()
-                if (!$proc.HasExited -and $proc.MainWindowTitle -match '^(Performance Options|性能选项)$') {
+                if (!$proc.HasExited -and $proc.MainWindowTitle -match '^(Performance Options|性能选项|System Properties|系统属性)$') {
                   Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
                 }
               }
