@@ -219,23 +219,26 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\persist-userdata-windows.ps1" -Mode Restore'
-      - name: Configure Simplified Chinese locale
+      - name: Install Simplified Chinese typing component
+        shell: pwsh
+        timeout-minutes: 10
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = 'Language.Basic~~~zh-CN~0.0.1.0'
+          $basicTyping = Get-WindowsCapability -Online -Name $name -ErrorAction Stop
+          if ($basicTyping.State -ne 'Installed') {
+            Add-WindowsCapability -Online -Name $name -ErrorAction Stop | Out-Null
+          }
+          $verified = Get-WindowsCapability -Online -Name $name -ErrorAction Stop
+          if ($verified.State -ne 'Installed') { throw 'Simplified Chinese typing component is still missing' }
+          Write-Host 'Simplified Chinese typing component is installed.'
+      - name: Configure Simplified Chinese Pinyin and locale
+        if: always()
         shell: pwsh
         continue-on-error: true
         run: |
           $ErrorActionPreference = 'Continue'
-          $os = Get-CimInstance Win32_OperatingSystem
-          if ($os.ProductType -eq 1) {
-            try { Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop } catch { Write-Warning ('Chinese language pack install skipped: ' + $_.Exception.Message) }
-          } else {
-            Write-Host 'Windows Server runner detected. Applying Chinese locale preferences without downloading a client-only language pack.'
-          }
-          try {
-            $basicTyping = Get-WindowsCapability -Online -Name 'Language.Basic~~~zh-CN~0.0.1.0' -ErrorAction Stop
-            if ($basicTyping.State -ne 'Installed') {
-              Add-WindowsCapability -Online -Name 'Language.Basic~~~zh-CN~0.0.1.0' -ErrorAction Stop | Out-Null
-            }
-          } catch { Write-Warning ('Chinese basic typing feature install failed: ' + $_.Exception.Message) }
           try {
             $languages = New-WinUserLanguageList -Language 'zh-CN'
             $languages[0].InputMethodTips.Clear()
@@ -243,6 +246,7 @@ jobs:
             $languages.Add('en-US') | Out-Null
             Set-WinUserLanguageList -LanguageList $languages -Force -ErrorAction Stop
             Set-WinDefaultInputMethodOverride -InputTip '0804:00000804' -ErrorAction Stop
+            Write-Host 'Microsoft Pinyin is the default input method for the RDP user.'
           } catch { Write-Warning ('Chinese Pinyin input method was not applied: ' + $_.Exception.Message) }
           try { Set-WinUILanguageOverride -Language zh-CN -ErrorAction Stop } catch { Write-Warning ('UI language override unavailable until the language pack is installed.') }
           try { Set-WinSystemLocale -SystemLocale zh-CN -ErrorAction Stop } catch { Write-Warning ('System locale was not changed: ' + $_.Exception.Message) }
