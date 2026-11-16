@@ -194,21 +194,27 @@ jobs:
           SHARED_ALIST_USERNAME: ${{ secrets.SHARED_ALIST_USERNAME }}
           SHARED_ALIST_PASSWORD: ${{ secrets.SHARED_ALIST_PASSWORD }}
         run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\mount-share-windows.ps1"'
-      - name: Configure Simplified Chinese display language
-        shell: powershell
-        timeout-minutes: 12
+      - name: Restore Windows app profiles from AList
+        if: success()
+        shell: pwsh
+        continue-on-error: true
+        run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\persist-userdata-windows.ps1" -Mode Restore'
+      - name: Configure Simplified Chinese locale
+        shell: pwsh
+        continue-on-error: true
         run: |
-          $ErrorActionPreference = 'Stop'
-          Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop
-          Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList zh-CN) -Force
-          Set-WinUILanguageOverride -Language zh-CN
-          Set-WinSystemLocale -SystemLocale zh-CN
-          Set-Culture zh-CN
-          Set-WinHomeLocation -GeoId 45
-          Write-Host ('UI language override: ' + (Get-WinUILanguageOverride).Language)
-          Write-Host ('System locale: ' + (Get-WinSystemLocale).Name)
-          Write-Host ('User languages: ' + ((Get-WinUserLanguageList).LanguageTag -join ', '))
-          dism.exe /online /get-intl
+          $ErrorActionPreference = 'Continue'
+          $os = Get-CimInstance Win32_OperatingSystem
+          if ($os.ProductType -eq 1) {
+            try { Install-Language -Language zh-CN -CopyToSettings -ErrorAction Stop } catch { Write-Warning ('Chinese language pack install skipped: ' + $_.Exception.Message) }
+          } else {
+            Write-Host 'Windows Server runner detected. Applying Chinese locale preferences without downloading a client-only language pack.'
+          }
+          try { Set-WinUserLanguageList -LanguageList (New-WinUserLanguageList zh-CN) -Force -ErrorAction Stop } catch { Write-Warning ('User language preference was not applied: ' + $_.Exception.Message) }
+          try { Set-WinUILanguageOverride -Language zh-CN -ErrorAction Stop } catch { Write-Warning ('UI language override unavailable until the language pack is installed.') }
+          try { Set-WinSystemLocale -SystemLocale zh-CN -ErrorAction Stop } catch { Write-Warning ('System locale was not changed: ' + $_.Exception.Message) }
+          try { Set-Culture zh-CN -ErrorAction Stop } catch { Write-Warning ('Culture was not changed: ' + $_.Exception.Message) }
+          try { Set-WinHomeLocation -GeoId 45 -ErrorAction Stop } catch { Write-Warning ('Home location was not changed: ' + $_.Exception.Message) }
       - name: Dismiss startup dialogs after language setup
         shell: pwsh
         run: |
@@ -234,6 +240,12 @@ jobs:
       - name: Keep session available
         shell: pwsh
         run: Start-Sleep -Seconds 21300
+      - name: Save Windows app profiles to AList
+        if: always()
+        shell: pwsh
+        timeout-minutes: 15
+        continue-on-error: true
+        run: '& "$env:GITHUB_WORKSPACE\sky-workflow-services\persist-userdata-windows.ps1" -Mode Save'
       - name: Remove temporary Tailscale node
         if: always()
         shell: pwsh
