@@ -33,21 +33,6 @@ jobs:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
           args: --advertise-exit-node
           hostname: sky-workflow-windows
-      - name: Configure RDP
-        shell: pwsh
-        env:
-          DESKTOP_PASSWORD: ${{ secrets.WINDOWS_DESKTOP_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:DESKTOP_PASSWORD)) { throw "请先设置 WINDOWS_DESKTOP_PASSWORD" }
-          $secure = ConvertTo-SecureString $env:DESKTOP_PASSWORD -AsPlainText -Force
-          Set-LocalUser -Name 'runneradmin' -Password $secure
-          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0
-          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 1
-          Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
-          $ts = Get-NetAdapter | Where-Object { $_.InterfaceDescription -like '*Tailscale*' } | Select-Object -First 1
-          if (!$ts) { throw "找不到 Tailscale 网卡" }
-          New-NetFirewallRule -DisplayName 'Tailscale RDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3389 -InterfaceAlias $ts.Name | Out-Null
-          tailscale ip -4
       - name: Install latest QQ, WeChat, Bilibili and desktop links
         shell: pwsh
         timeout-minutes: 18
@@ -237,6 +222,21 @@ jobs:
               ForEach-Object { [void][LateWindowTools]::ShowWindowAsync($_.MainWindowHandle, 6) }
             Start-Sleep -Seconds 2
           }
+      - name: Configure RDP
+        shell: pwsh
+        env:
+          DESKTOP_PASSWORD: ${{ secrets.WINDOWS_DESKTOP_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:DESKTOP_PASSWORD)) { throw "请先设置 WINDOWS_DESKTOP_PASSWORD" }
+          $secure = ConvertTo-SecureString $env:DESKTOP_PASSWORD -AsPlainText -Force
+          Set-LocalUser -Name 'runneradmin' -Password $secure
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 1
+          Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
+          $ts = Get-NetAdapter | Where-Object { $_.InterfaceDescription -like '*Tailscale*' } | Select-Object -First 1
+          if (!$ts) { throw "找不到 Tailscale 网卡" }
+          New-NetFirewallRule -DisplayName 'Tailscale RDP' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3389 -InterfaceAlias $ts.Name | Out-Null
+          tailscale ip -4
       - name: Keep session available
         shell: pwsh
         run: Start-Sleep -Seconds 21300
