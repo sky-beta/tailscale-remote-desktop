@@ -29,7 +29,7 @@ profiles = {
     "wechat-documents": "Library/Containers/com.tencent.xinWeChat/Data/Documents",
 }
 
-if not mount.exists():
+if not mount.exists() or not mount.is_mount():
     print("AList mount is unavailable; profile persistence was skipped.", flush=True)
     raise SystemExit(0)
 if MODE == "restore" and not backup.exists():
