@@ -97,8 +97,48 @@ jobs:
           GH_REPO: ${{ github.repository }}
           GH_REF: ${{ github.ref_name }}
         run: |
+          set -euo pipefail
           if [ "${{ job.status }}" = failure ]; then sleep 45; fi
-          gh workflow run linux.yml --repo "$GH_REPO" --ref "$GH_REF"
+          workflow=linux.yml
+          for attempt in 1 2 3 4; do
+            requested_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            if gh workflow run "$workflow" --repo "$GH_REPO" --ref "$GH_REF"; then
+              echo "Next Linux session dispatched."
+              exit 0
+            fi
+
+            echo "Dispatch attempt $attempt failed; checking whether GitHub accepted it."
+            found=false
+            verified=false
+            for check in $(seq 1 8); do
+              sleep 5
+              if ! runs=$(gh run list --repo "$GH_REPO" --workflow "$workflow" --branch "$GH_REF" --limit 20 --json createdAt); then
+                echo "Could not verify the dispatch yet ($check/8)." >&2
+                continue
+              fi
+              verified=true
+              if jq -e --arg since "$requested_at" 'any(.[]; .createdAt >= $since)' <<<"$runs" >/dev/null; then
+                found=true
+                break
+              fi
+            done
+
+            if [ "$found" = true ]; then
+              echo "GitHub accepted the dispatch; a new Linux run is visible."
+              exit 0
+            fi
+            if [ "$verified" = false ]; then
+              echo "Unable to verify whether GitHub accepted the dispatch; stopping to avoid duplicate runs." >&2
+              exit 1
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              delay=$((attempt * 10))
+              echo "No new run appeared; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+          echo "Unable to dispatch the next Linux session after four attempts." >&2
+          exit 1
       - name: Remove temporary Tailscale node
         if: always()
         run: sudo tailscale logout || true
